@@ -1,5 +1,5 @@
 import { EPUBLayout, Link, Locator, Publication, ReadingProgression } from "@readium/shared";
-import { VisualNavigator } from "../";
+import { Configurable, ConfigurablePreferences, ConfigurableSettings, LineLengths, VisualNavigator } from "../";
 import { FramePoolManager } from "./frame/FramePoolManager";
 import { FXLFramePoolManager } from "./fxl/FXLFramePoolManager";
 import { CommsEventKey, FXLModules, ModuleLibrary, ModuleName, ReflowableModules } from "@readium/navigator-html-injectables";
@@ -7,8 +7,20 @@ import { BasicTextSelection, FrameClickEvent } from "@readium/navigator-html-inj
 import * as path from "path-browserify";
 import { FXLFrameManager } from "./fxl/FXLFrameManager";
 import { FrameManager } from "./frame/FrameManager";
+import { IEpubPreferences, EpubPreferences } from "./preferences/EpubPreferences";
+import { IEpubDefaults, EpubDefaults } from "./preferences/EpubDefaults";
+import { EpubSettings } from "./preferences";
+import { EpubPreferencesEditor } from "./preferences/EpubPreferencesEditor";
+import { ReadiumCSS } from "./css/ReadiumCSS";
+import { RSProperties, UserProperties } from "./css/Properties";
+import { getContentWidth } from "../helpers/dimensions";
 
 export type ManagerEventKey = "zoom";
+
+export interface EpubNavigatorConfiguration {
+    preferences: IEpubPreferences;
+    defaults: IEpubDefaults;
+}
 
 export interface EpubNavigatorListeners {
     frameLoaded: (wnd: Window) => void;
@@ -35,7 +47,7 @@ const defaultListeners = (listeners: EpubNavigatorListeners): EpubNavigatorListe
     textSelected: listeners.textSelected || (() => {})
 })
 
-export class EpubNavigator extends VisualNavigator {
+export class EpubNavigator extends VisualNavigator implements Configurable<ConfigurableSettings, ConfigurablePreferences> {
     private readonly pub: Publication;
     private readonly container: HTMLElement;
     private readonly listeners: EpubNavigatorListeners;
@@ -46,16 +58,55 @@ export class EpubNavigator extends VisualNavigator {
     private currentProgression: ReadingProgression;
     public readonly layout: EPUBLayout;
 
-    constructor(container: HTMLElement, pub: Publication, listeners: EpubNavigatorListeners, positions: Locator[] = [], initialPosition: Locator | undefined = undefined) {
+    private _preferences: EpubPreferences;
+    private _defaults: EpubDefaults;
+    private _settings: EpubSettings;
+    private _css: ReadiumCSS;
+    private _preferencesEditor: EpubPreferencesEditor | null = null;
+
+    private resizeObserver: ResizeObserver;
+
+    constructor(container: HTMLElement, pub: Publication, listeners: EpubNavigatorListeners, positions: Locator[] = [], initialPosition: Locator | undefined = undefined, configuration: EpubNavigatorConfiguration = { preferences: {}, defaults: {} }) {
         super();
         this.pub = pub;
         this.layout = EpubNavigator.determineLayout(pub);
-        this.currentProgression = pub.metadata.effectiveReadingProgression;
         this.container = container;
         this.listeners = defaultListeners(listeners);
         this.currentLocation = initialPosition!;
         if (positions.length)
             this.positions = positions;
+
+        this._preferences = new EpubPreferences(configuration.preferences);
+        this._defaults = new EpubDefaults(configuration.defaults);
+        this._settings = new EpubSettings(this._preferences, this._defaults);
+        this._css = new ReadiumCSS({ 
+            rsProperties: new RSProperties({}),
+            userProperties: new UserProperties({}),
+            lineLengths: new LineLengths({
+                optimalChars: this._settings.optimalLineLength,
+                minChars: this._settings.minimalLineLength,
+                maxChars: this._settings.maximalLineLength,
+                pageGutter: this._settings.pageGutter,
+                fontFace: this._settings.fontFamily,
+                letterSpacing: this._settings.letterSpacing,
+                wordSpacing: this._settings.wordSpacing,
+            //    sample: this.pub.metadata.description
+            }),
+            container: container,
+            constraint: this._settings.constraint
+        });
+
+        this.currentProgression = this.layout === EPUBLayout.reflowable 
+            ? (this._settings.scroll 
+                ? ReadingProgression.ttb 
+                : pub.metadata.effectiveReadingProgression) 
+            : pub.metadata.effectiveReadingProgression;
+
+        // We use a resizeObserver cos’ the container parent may not be the width of 
+        // the document/window e.g. app using a docking system with left and right panels.
+        // If we observe this.container, that won’t obviously work since we set its width.
+        this.resizeObserver = new ResizeObserver(() => this.ownerWindow.requestAnimationFrame(async () => await this.resizeHandler()));
+        this.resizeObserver.observe(this.container.parentElement || document.documentElement);
     }
 
     public static determineLayout(pub: Publication): EPUBLayout {
@@ -79,11 +130,137 @@ export class EpubNavigator extends VisualNavigator {
             this.framePool.listener = (key: CommsEventKey | ManagerEventKey, data: unknown) => {
                 this.eventListener(key, data);
             }
-        } else
-            this.framePool = new FramePoolManager(this.container, this.positions);
+        } else {
+            await this.updateCSS(false);
+            const cssProperties = this.compileCSSProperties(this._css);
+            this.framePool = new FramePoolManager(this.container, this.positions, cssProperties);
+        }
+
         if(this.currentLocation === undefined)
             this.currentLocation = this.positions[0];
+
+        await this.resizeHandler();
         await this.apply();
+    }
+
+    public get settings(): Readonly<EpubSettings> {
+        if (this.layout === EPUBLayout.fixed) {
+            return Object.freeze({ ...this._settings });
+        } else {
+            // Given all the nasty issues moving auto-pagination to EpubSettings creates
+            // Especially as it’s tied to ReadiumCSS in the first place and could be 
+            // problematic if you intend to use something else,
+            // we return the properties with columnCount overridden
+            const columnCount = this._css.userProperties.colCount || this._css.rsProperties.colCount || this._settings.columnCount;
+            return Object.freeze({ ...this._settings, columnCount: columnCount });
+        }
+    }
+
+    public get preferencesEditor() {
+        if (this._preferencesEditor === null) {
+            // Note: we pass this.settings instead of this._settings to ensure the columnCount is correct
+            this._preferencesEditor = new EpubPreferencesEditor(this._preferences, this.settings, this.pub.metadata);
+        }
+        return this._preferencesEditor;
+    }
+
+    public async submitPreferences(preferences: EpubPreferences) {
+        this._preferences = this._preferences.merging(preferences) as EpubPreferences;
+        await this.applyPreferences();
+    }
+
+    private async applyPreferences() {
+        const oldSettings = this._settings;
+        this._settings = new EpubSettings(this._preferences, this._defaults);
+        
+        if (this._preferencesEditor !== null) {
+            // Note: we pass this.settings instead of this._settings to ensure the columnCount is correct
+            this._preferencesEditor = new EpubPreferencesEditor(this._preferences, this.settings, this.pub.metadata);
+        }
+
+        if (this.layout === EPUBLayout.fixed) {
+            this.handleFXLPrefs(oldSettings, this._settings);
+        } else {
+            await this.updateCSS(true);
+        }
+    }
+
+    // TODO: fit, etc.
+    private handleFXLPrefs(from: EpubSettings, to: EpubSettings) {
+        if (from.columnCount !== to.columnCount) {
+            (this.framePool as FXLFramePoolManager).setPerPage(to.columnCount);
+        }
+    }
+
+    private async updateCSS(commit: boolean) {
+        this._css.update(this._settings);
+
+        if (commit) await this.commitCSS(this._css);
+    };
+
+    private compileCSSProperties(css: ReadiumCSS) {
+        const properties: { [key: string]: string } = {};
+
+        for (const [key, value] of Object.entries(css.rsProperties.toCSSProperties())) {
+            properties[key] = value;
+        }
+
+        for (const [key, value] of Object.entries(css.userProperties.toCSSProperties())) {
+            properties[key] = value;
+        }
+
+        return properties;
+    }
+
+    private async commitCSS(css: ReadiumCSS) {
+        // Since we’re updating the CSS properties in injectables by removing
+        // the existing properties that are not inside this object first, 
+        // then adding all from it, we don’t compare the previous properties here
+        const properties = this.compileCSSProperties(css);
+
+        (this.framePool as FramePoolManager).setCSSProperties(properties);
+
+        if (
+            this._css.userProperties.view === "paged" && 
+            this.readingProgression === ReadingProgression.ttb
+        ) {
+            await this.setReadingProgression(this.pub.metadata.effectiveReadingProgression); 
+        } else if (
+            this._css.userProperties.view === "scroll" && 
+            (this.readingProgression === ReadingProgression.ltr || this.readingProgression === ReadingProgression.rtl)
+        ) {
+            await this.setReadingProgression(ReadingProgression.ttb);
+        }
+
+        this._css.setContainerWidth();
+    }
+
+    async resizeHandler() {
+        // We check the parentElement cos we want to remove constraint from the container
+        // and the container may not be the entire width of the document/window
+        const parentEl = this.container.parentElement || document.documentElement;
+
+        if (this.layout === EPUBLayout.fixed) {
+            this.container.style.width = `${ getContentWidth(parentEl) - this._settings.constraint }px`;
+            (this.framePool as FXLFramePoolManager).resizeHandler();
+        } else {
+            // for reflow ReadiumCSS gets the width from columns + line-lengths 
+            // but we need to check whether colCount has changed to commit new CSS
+            const oldColCount = this._css.userProperties.colCount;
+            const oldLineLength = this._css.userProperties.lineLength;
+            this._css.resizeHandler();
+            if (
+                this._css.userProperties.view !== "scroll" &&
+                oldColCount !== this._css.userProperties.colCount ||
+                oldLineLength !== this._css.userProperties.lineLength
+            ) {
+                await this.commitCSS(this._css);
+            }
+        }
+    }
+
+    get ownerWindow() {
+        return this.container.ownerDocument.defaultView || window;
     }
 
     /**
@@ -442,7 +619,7 @@ export class EpubNavigator extends VisualNavigator {
 
     // TODO: This is temporary until user settings are implemented.
     public async setReadingProgression(newProgression: ReadingProgression) {
-        if(this.currentProgression === newProgression) return;
+        if(this.currentProgression === newProgression || !this.framePool) return;
         this.currentProgression = newProgression;
         await this.framePool.update(this.pub, this.currentLocator, this.determineModules(), true);
         this.attachListener();

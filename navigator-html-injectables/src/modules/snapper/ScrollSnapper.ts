@@ -1,7 +1,6 @@
 import { Locator, LocatorLocations, LocatorText } from "@readium/shared";
 import { Comms } from "../../comms";
 import { ReadiumWindow, deselect, findFirstVisibleLocator } from "../../helpers/dom";
-import { AnchorObserver, helperCreateAnchorElements, helperRemoveAnchorElements } from '../../helpers/scrollSnapperHelper';
 import { ModuleName } from "../ModuleLibrary";
 import { Snapper } from "./Snapper";
 import { rangeFromLocator } from "../../helpers/locator";
@@ -12,27 +11,27 @@ export class ScrollSnapper extends Snapper {
     static readonly moduleName: ModuleName = "scroll_snapper";
     private wnd!: ReadiumWindow;
     private comms!: Comms;
+    private resizeObserver!: ResizeObserver;
+    private isScrolling = false;
 
     private doc() {
         return this.wnd.document.scrollingElement as HTMLElement;
     }
 
-    private createAnchorElements = () => {
-        helperCreateAnchorElements(this.doc());
-    }
-
-    private removeAnchorElements = () => {
-        helperRemoveAnchorElements(this.doc());
-    }
-
-    private createCustomElement = () => {
-        customElements.get("anchor-observer") ||
-            customElements.define("anchor-observer", AnchorObserver);
-    }
-
     private reportProgress(data: { progress: number, reference: number }) {
         this.comms.send("progress", data);
     }
+
+    private handleScroll = () => {
+        if (!this.isScrolling) {
+            this.isScrolling = true;
+            this.wnd.requestAnimationFrame(() => {
+                const progress = this.doc().scrollTop / this.doc().offsetHeight;
+                this.reportProgress({ progress: progress, reference: this.wnd.innerHeight / this.doc().scrollHeight });
+                this.isScrolling = false;
+            });
+        }
+    };
 
     mount(wnd: ReadiumWindow, comms: Comms): boolean {
         this.wnd = wnd;
@@ -54,6 +53,15 @@ export class ScrollSnapper extends Snapper {
         }
         `;
         wnd.document.head.appendChild(style);
+
+        this.resizeObserver = new ResizeObserver(() => {
+            this.comms.ready && this.handleScroll();
+        });
+        this.resizeObserver.observe(wnd.document.body);
+
+        wnd.addEventListener("scroll", this.handleScroll, {
+            passive: true
+        });
 
         comms.register("go_progression", ScrollSnapper.moduleName, (data, ack) => {
             const position = data as number;
@@ -158,14 +166,13 @@ export class ScrollSnapper extends Snapper {
         });
 
         comms.log("ScrollSnapper Mounted");
-        this.createCustomElement();
-        this.createAnchorElements();
         return true;
     }
 
     unmount(wnd: ReadiumWindow, comms: Comms): boolean {
         comms.unregisterAll(ScrollSnapper.moduleName);
-        this.removeAnchorElements();
+        this.resizeObserver.disconnect();
+        if (this.handleScroll) wnd.removeEventListener("scroll", this.handleScroll);
         wnd.document.getElementById(SCROLL_SNAPPER_STYLE_ID)?.remove();
         comms.log("ScrollSnapper Unmounted");
         return true;

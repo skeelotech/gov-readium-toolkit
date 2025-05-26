@@ -1,0 +1,154 @@
+import { 
+  fontSizeRangeConfig, 
+  fontWeightRangeConfig, 
+  fontWidthRangeConfig, 
+  LayoutStrategy, 
+  TextAlignment, 
+  Theme 
+} from "../../preferences/Types";
+
+import { 
+  ensureBoolean, 
+  ensureEnumValue, 
+  ensureFilter, 
+  ensureLessThanOrEqual, 
+  ensureMoreThanOrEqual, 
+  ensureNonNegative, 
+  ensureString, 
+  ensureValueInRange, 
+  withFallback
+} from "./guards";
+
+import { sMLWithRequest } from "../../helpers";
+
+export interface IEpubDefaults {
+  backgroundColor?: string | null,
+  blendFilter?: boolean | null,
+  columnCount?: number | null,
+  constraint?: number | null,
+  darkenFilter?: boolean | number | null,
+  deprecatedFontSize?: boolean | null,
+  fontFamily?: string | null,
+  fontSize?: number | null,
+  fontSizeNormalize?: boolean | null,
+  fontOpticalSizing?: boolean | null,
+  fontOverride?: boolean | null,
+  fontWeight?: number | null,
+  fontWidth?: number | null,
+  hyphens?: boolean | null,
+  invertFilter?: boolean | number | null,
+  invertGaijiFilter?: boolean | number | null,
+  iPadOSPatch?: boolean | null,
+  layoutStrategy?: LayoutStrategy | null,
+  letterSpacing?: number | null,
+  ligatures?: boolean | null,
+  lineHeight?: number | null,
+  lineLength?: number | null,
+  linkColor?: string | null,
+  maximalLineLength?: number | null,
+  minimalLineLength?: number | null,
+  noRuby?: boolean | null,
+  optimalLineLength?: number | null,
+  pageGutter?: number | null,
+  paragraphIndent?: number | null,
+  paragraphSpacing?: number | null,
+  scroll?: boolean | null,
+  selectionBackgroundColor?: string | null,
+  selectionTextColor?: string | null,
+  textAlign?: TextAlignment | null,
+  textColor?: string | null,
+  textNormalization?: boolean | null,
+  theme?: Theme | null,
+  visitedColor?: string | null,
+  wordSpacing?: number | null
+}
+
+export class EpubDefaults {
+  backgroundColor: string | null;
+  blendFilter: boolean | null;
+  columnCount: number | null;
+  constraint: number;
+  darkenFilter: boolean | number | null;
+  deprecatedFontSize?: boolean | null;
+  fontFamily: string | null;
+  fontSize: number | null;
+  fontSizeNormalize: boolean | null;
+  fontOpticalSizing: boolean | null;
+  fontOverride: boolean | null;
+  fontWeight: number | null;
+  fontWidth: number | null;
+  hyphens: boolean | null;
+  invertFilter: boolean | number | null;
+  invertGaijiFilter: boolean | number | null;
+  iPadOSPatch: boolean;
+  layoutStrategy: LayoutStrategy | null;
+  letterSpacing: number | null;
+  ligatures: boolean | null;
+  lineHeight: number | null;
+  lineLength: number | null;
+  linkColor: string | null;
+  maximalLineLength: number | null;
+  minimalLineLength: number | null;
+  noRuby: boolean | null;
+  optimalLineLength: number;
+  pageGutter: number | null;
+  paragraphIndent: number | null;
+  paragraphSpacing: number | null;
+  scroll: boolean | null;
+  selectionBackgroundColor: string | null;
+  selectionTextColor: string | null;
+  textAlign: TextAlignment | null;
+  textColor: string | null;
+  textNormalization: boolean | null;
+  theme: Theme | null;
+  visitedColor: string | null;
+  wordSpacing: number | null;
+
+  constructor(defaults: IEpubDefaults) {
+    this.backgroundColor = ensureString(defaults.backgroundColor) || null;
+    this.blendFilter = ensureBoolean(defaults.blendFilter) ?? false;
+    this.constraint = ensureNonNegative(defaults.constraint) || 0;
+    this.columnCount = ensureNonNegative(defaults.columnCount) || null;
+    this.darkenFilter = ensureFilter(defaults.darkenFilter) ?? false;
+    this.deprecatedFontSize = ensureBoolean(defaults.deprecatedFontSize);
+    if (this.deprecatedFontSize === false || this.deprecatedFontSize === null) {
+      this.deprecatedFontSize = !CSS.supports("zoom", "1");
+    }
+    this.fontFamily = ensureString(defaults.fontFamily) || null;
+    this.fontSize = ensureValueInRange(defaults.fontSize, fontSizeRangeConfig.range) || 1;
+    this.fontSizeNormalize = ensureBoolean(defaults.fontSizeNormalize) ?? false;
+    this.fontOpticalSizing = ensureBoolean(defaults.fontOpticalSizing) ?? null;
+    this.fontOverride = ensureBoolean(defaults.fontOverride) ?? null;
+    this.fontWeight = ensureValueInRange(defaults.fontWeight, fontWeightRangeConfig.range) || null;
+    this.fontWidth = ensureValueInRange(defaults.fontWidth,fontWidthRangeConfig.range) || null;
+    this.hyphens = ensureBoolean(defaults.hyphens) ?? null;
+    this.invertFilter = ensureFilter(defaults.invertFilter) ?? false;
+    this.invertGaijiFilter = ensureFilter(defaults.invertGaijiFilter) ?? false;
+    this.iPadOSPatch = defaults.iPadOSPatch === false 
+        ? false 
+        : (sMLWithRequest.OS.iPadOS && sMLWithRequest.iOSRequest === "desktop");
+    this.layoutStrategy = ensureEnumValue<LayoutStrategy>(defaults.layoutStrategy, LayoutStrategy) || LayoutStrategy.lineLength;
+    this.letterSpacing = ensureNonNegative(defaults.letterSpacing) || null;
+    this.ligatures = ensureBoolean(defaults.ligatures) ?? null;
+    this.lineHeight = ensureNonNegative(defaults.lineHeight) || null;
+    this.linkColor = ensureString(defaults.linkColor) || null;
+    this.noRuby = ensureBoolean(defaults.noRuby) ?? false;
+    this.pageGutter = withFallback(ensureNonNegative(defaults.pageGutter), 20);
+    this.paragraphIndent = ensureNonNegative(defaults.paragraphIndent) ?? null;
+    this.paragraphSpacing = ensureNonNegative(defaults.paragraphSpacing) ?? null;
+    this.scroll = ensureBoolean(defaults.scroll) ?? false;
+    this.selectionBackgroundColor = ensureString(defaults.selectionBackgroundColor) || null;
+    this.selectionTextColor = ensureString(defaults.selectionTextColor) || null;
+    this.textAlign = ensureEnumValue<TextAlignment>(defaults.textAlign, TextAlignment) || null;
+    this.textColor = ensureString(defaults.textColor) || null;
+    this.textNormalization = ensureBoolean(defaults.textNormalization) ?? false;
+    this.theme = ensureEnumValue<Theme>(defaults.theme, Theme) || null;
+    this.visitedColor = ensureString(defaults.visitedColor) || null;
+    this.wordSpacing = ensureNonNegative(defaults.wordSpacing) || null;
+
+    this.lineLength = ensureNonNegative(defaults.lineLength) || null;
+    this.optimalLineLength = ensureNonNegative(defaults.optimalLineLength) || 65;
+    this.maximalLineLength = withFallback(ensureMoreThanOrEqual(defaults.maximalLineLength, this.lineLength || this.optimalLineLength), 80);
+    this.minimalLineLength = withFallback(ensureLessThanOrEqual(defaults.minimalLineLength, this.lineLength || this.optimalLineLength), 40);
+  }
+}

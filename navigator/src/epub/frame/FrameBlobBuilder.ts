@@ -82,11 +82,13 @@ export default class FrameBlobBuider {
     private readonly item: Link;
     private readonly burl: string;
     private readonly pub: Publication;
+    private readonly cssProperties?: { [key: string]: string };
 
-    constructor(pub: Publication, baseURL: string, item: Link) {
+    constructor(pub: Publication, baseURL: string, item: Link, cssProperties?: { [key: string]: string }) {
         this.pub = pub;
         this.item = item;
         this.burl = item.toURL(baseURL) || "";
+        this.cssProperties = cssProperties;
     }
 
     public async build(fxl = false): Promise<string> {
@@ -113,7 +115,7 @@ export default class FrameBlobBuider {
             const details = perror.querySelector("div");
             throw new Error(`Failed parsing item ${this.item.href}: ${details?.textContent || perror.textContent}`);
         }
-        return this.finalizeDOM(doc, this.burl, this.item.mediaType, fxl);
+        return this.finalizeDOM(doc, this.burl, this.item.mediaType, fxl, this.cssProperties);
     }
 
     private buildImageFrame(): string {
@@ -150,7 +152,14 @@ export default class FrameBlobBuider {
         return false;
     }
 
-    private finalizeDOM(doc: Document, base: string | undefined, mediaType: MediaType, fxl = false): string {
+    private setProperties(cssProperties: { [key: string]: string }, doc: Document) {
+        for (const key in cssProperties) {
+            const value = cssProperties[key];
+            if (value) doc.documentElement.style.setProperty(key, value);
+        }
+    }
+
+    private finalizeDOM(doc: Document, base: string | undefined, mediaType: MediaType, fxl = false, cssProperties?: { [key: string]: string }): string {
         if(!doc) return "";
 
         // Inject styles
@@ -159,18 +168,16 @@ export default class FrameBlobBuider {
             const rcssBefore = styleify(doc, cached("ReadiumCSS-before", () => blobify(stripCSS(readiumCSSBefore), "text/css")));
             doc.head.firstChild ? doc.head.firstChild.before(rcssBefore) : doc.head.appendChild(rcssBefore);
 
-            // Patch
-            const patch = doc.createElement("style");
-            patch.dataset.readium = "true";
-            patch.innerHTML = `audio[controls] { width: revert; height: revert; }`; // https://github.com/readium/readium-css/issues/94
-            rcssBefore.after(patch);
-
             // Readium CSS defaults
             if(!this.hasStyle(doc))
                 rcssBefore.after(styleify(doc, cached("ReadiumCSS-default", () => blobify(stripCSS(readiumCSSDefault), "text/css"))))
 
             // Readium CSS After
             doc.head.appendChild(styleify(doc, cached("ReadiumCSS-after", () => blobify(stripCSS(readiumCSSAfter), "text/css"))));
+
+            if (cssProperties) {
+                this.setProperties(cssProperties, doc);
+            }
         }
 
         // Set all <img> elements to high priority
@@ -183,6 +190,49 @@ export default class FrameBlobBuider {
         doc.body.querySelectorAll("img").forEach((img) => {
             img.setAttribute("fetchpriority", "high");
         });
+
+        // We need to ensure that lang is set on the root element 
+        // since it is used for settings such as font-family, hyphens, ligatures, etc.
+        // but also screen readers, etc.
+        // Metadata’s effectiveReadingProgression uses first item in array as primary language 
+        // so we keep it consistent.
+        if (mediaType.isHTML && this.pub.metadata.languages?.[0]) {
+            const primaryLanguage = this.pub.metadata.languages[0];
+
+            if (mediaType === MediaType.XHTML) {
+                // InDesign is infamous for setting xml:lang on the body instead of the root element
+                // So we have to check whether lang is set on the body and move it to the root element
+                const rootLang = document.documentElement.lang || document.documentElement.getAttribute("xml:lang");
+                const bodyLang = document.body.lang || document.body.getAttribute("xml:lang");
+                if (bodyLang && !rootLang) {
+                    document.documentElement.lang = bodyLang;
+                    document.documentElement.setAttribute("xml:lang", bodyLang);
+                    document.body.removeAttribute("xml:lang");
+                    document.body.removeAttribute("lang");
+                } else if (!rootLang) {
+                    document.documentElement.lang = primaryLanguage;
+                    document.documentElement.setAttribute("xml:lang", primaryLanguage);
+                }
+            } else if (
+                mediaType === MediaType.HTML && 
+                !document.documentElement.lang
+            ) {
+                document.documentElement.lang = primaryLanguage;
+            }
+        }
+
+        // We need to ensure that dir is set on the root element if rtl
+        // Since body can bubble up, we also need to check it’s not here.
+        // https://github.com/readium/readium-css/blob/develop/docs/CSS03-injection_and_pagination.md#be-cautious-the-direction-propagates
+
+        // TODO: ReadiumCSS stylesheets are injected as LTR/default no matter what so disabled ATM
+        /* if (
+            !document.documentElement.dir &&
+            !document.body.dir && 
+            this.pub.metadata.effectiveReadingProgression === ReadingProgression.rtl
+        ) {
+            document.documentElement.dir = this.pub.metadata.effectiveReadingProgression;
+        } */
     
         if(base !== undefined) {
             // Set all URL bases. Very convenient!
