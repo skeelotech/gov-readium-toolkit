@@ -12,7 +12,7 @@ import {
   fontWidthRangeConfig 
 } from "../../preferences/Types";
 
-import dayMode from "@readium/css/css/vars/day.json";
+import defaultColors from "@readium/css/css/vars/day.json";
 
 // WIP: will change cos’ of all the missing pieces
 export class EpubPreferencesEditor implements IPreferencesEditor {
@@ -39,7 +39,7 @@ export class EpubPreferencesEditor implements IPreferencesEditor {
   get backgroundColor(): Preference<string> {
     return new Preference<string>({
       initialValue: this.preferences.backgroundColor,
-      effectiveValue: this.settings.backgroundColor || dayMode.RS__backgroundColor,
+      effectiveValue: this.settings.backgroundColor || defaultColors.RS__backgroundColor,
       isEffective: this.preferences.backgroundColor !== null,
       onChange: (newValue: string | null | undefined) => {
         this.updatePreference("backgroundColor", newValue || null);
@@ -145,17 +145,6 @@ export class EpubPreferencesEditor implements IPreferencesEditor {
       isEffective: this.layout === EPUBLayout.reflowable && this.preferences.fontOpticalSizing !== null,
       onChange: (newValue: boolean | null | undefined) => {
         this.updatePreference("fontOpticalSizing", newValue || null);
-      }
-    });
-  }
-
-  get fontOverride(): BooleanPreference {
-    return new BooleanPreference({
-      initialValue: this.preferences.fontOverride,
-      effectiveValue: this.settings.fontOverride || false,
-      isEffective: this.layout === EPUBLayout.reflowable && this.preferences.fontOverride !== null,
-      onChange: (newValue: boolean | null | undefined) => {
-        this.updatePreference("fontOverride", newValue || null);
       }
     });
   }
@@ -288,7 +277,7 @@ export class EpubPreferencesEditor implements IPreferencesEditor {
   get linkColor(): Preference<string> {
     return new Preference<string>({
       initialValue: this.preferences.linkColor,
-      effectiveValue: this.settings.linkColor || dayMode.RS__linkColor,
+      effectiveValue: this.settings.linkColor || defaultColors.RS__linkColor,
       isEffective: this.layout === EPUBLayout.reflowable && this.preferences.linkColor !== null,
       onChange: (newValue: string | null | undefined) => {
         this.updatePreference("linkColor", newValue || null);
@@ -397,7 +386,7 @@ export class EpubPreferencesEditor implements IPreferencesEditor {
   get selectionBackgroundColor(): Preference<string> {
     return new Preference<string>({
       initialValue: this.preferences.selectionBackgroundColor,
-      effectiveValue: this.settings.selectionBackgroundColor || dayMode.RS__selectionBackgroundColor,
+      effectiveValue: this.settings.selectionBackgroundColor || defaultColors.RS__selectionBackgroundColor,
       isEffective: this.layout === EPUBLayout.reflowable && this.preferences.selectionBackgroundColor !== null,
       onChange: (newValue: string | null | undefined) => {
         this.updatePreference("selectionBackgroundColor", newValue || null);
@@ -408,7 +397,7 @@ export class EpubPreferencesEditor implements IPreferencesEditor {
   get selectionTextColor(): Preference<string> {
     return new Preference<string>({
       initialValue: this.preferences.selectionTextColor,
-      effectiveValue: this.settings.selectionTextColor || dayMode.RS__selectionTextColor,
+      effectiveValue: this.settings.selectionTextColor || defaultColors.RS__selectionTextColor,
       isEffective: this.layout === EPUBLayout.reflowable && this.preferences.selectionTextColor !== null,
       onChange: (newValue: string | null | undefined) => {
         this.updatePreference("selectionTextColor", newValue || null);
@@ -431,7 +420,7 @@ export class EpubPreferencesEditor implements IPreferencesEditor {
   get textColor(): Preference<string> {
     return new Preference<string>({
       initialValue: this.preferences.textColor,
-      effectiveValue: this.settings.textColor || dayMode.RS__textColor,
+      effectiveValue: this.settings.textColor || defaultColors.RS__textColor,
       isEffective: this.layout === EPUBLayout.reflowable && this.preferences.textColor !== null,
       onChange: (newValue: string | null | undefined) => {
         this.updatePreference("textColor", newValue || null);
@@ -453,7 +442,7 @@ export class EpubPreferencesEditor implements IPreferencesEditor {
   get theme(): EnumPreference<Theme> {
     return new EnumPreference<Theme>({
       initialValue: this.preferences.theme,
-      effectiveValue: this.settings.theme || Theme.day,
+      effectiveValue: this.settings.theme || null,
       isEffective: this.layout === EPUBLayout.reflowable,
       onChange: (newValue: Theme | null | undefined) => {
         this.updatePreference("theme", newValue || null);
@@ -465,7 +454,7 @@ export class EpubPreferencesEditor implements IPreferencesEditor {
   get visitedColor(): Preference<string> {
     return new Preference<string>({
       initialValue: this.preferences.visitedColor,
-      effectiveValue: this.settings.visitedColor || dayMode.RS__visitedColor,
+      effectiveValue: this.settings.visitedColor || defaultColors.RS__visitedColor,
       isEffective: this.layout === EPUBLayout.reflowable && this.preferences.visitedColor !== null,
       onChange: (newValue: string | null | undefined) => {
         this.updatePreference("visitedColor", newValue || null);
