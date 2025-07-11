@@ -653,12 +653,12 @@ export class EpubNavigator extends VisualNavigator implements Configurable<Confi
     
     get canGoBackward(): boolean {
         const firstResource = this.pub.readingOrder.items[0]?.href;
-        return this.viewport.progressions.has(firstResource) && this.viewport.progressions.get(firstResource)?.start === 0;
+        return !(this.viewport.progressions.has(firstResource) && this.viewport.progressions.get(firstResource)?.start === 0);
     }
     
     get canGoForward(): boolean {
         const lastResource = this.pub.readingOrder.items[this.pub.readingOrder.items.length - 1]?.href;
-        return this.viewport.progressions.has(lastResource) && this.viewport.progressions.get(lastResource)?.end === 1;
+        return !(this.viewport.progressions.has(lastResource) && this.viewport.progressions.get(lastResource)?.end === 1);
     }
 
     // TODO: This is temporary until user settings are implemented.
