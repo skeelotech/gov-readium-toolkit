@@ -1,5 +1,5 @@
 import { ConfigurableSettings } from "../../preferences/Configurable";
-import { LayoutStrategy, TextAlignment, Theme } from "../../preferences/Types";
+import { TextAlignment, Theme } from "../../preferences/Types";
 import { EpubDefaults } from "./EpubDefaults";
 import { EpubPreferences } from "./EpubPreferences";
 
@@ -23,7 +23,6 @@ export interface IEpubSettings {
   invertGaijiFilter: boolean | number | null,
   iOSPatch?: boolean | null,
   iPadOSPatch?: boolean | null,
-  layoutStrategy?: LayoutStrategy | null,
   letterSpacing?: number | null,
   ligatures?: boolean | null,
   lineHeight?: number | null,
@@ -68,7 +67,6 @@ export class EpubSettings implements ConfigurableSettings {
   invertGaijiFilter: boolean | number | null;
   iOSPatch: boolean;
   iPadOSPatch: boolean;
-  layoutStrategy: LayoutStrategy | null;
   letterSpacing: number | null;
   ligatures: boolean | null;
   lineHeight: number | null;
@@ -156,7 +154,6 @@ export class EpubSettings implements ConfigurableSettings {
         : preferences.iPadOSPatch === true 
           ? (sMLWithRequest.OS.iPadOS && sMLWithRequest.iOSRequest === "desktop") 
           : defaults.iPadOSPatch;
-    this.layoutStrategy = preferences.layoutStrategy || defaults.layoutStrategy || null;
     this.letterSpacing = preferences.letterSpacing !== undefined 
       ? preferences.letterSpacing 
       : defaults.letterSpacing !== undefined 

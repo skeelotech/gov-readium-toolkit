@@ -1,7 +1,6 @@
 import { ConfigurablePreferences } from "../../preferences/Configurable";
 
 import { 
-  LayoutStrategy,
   TextAlignment, 
   Theme, 
   fontSizeRangeConfig, 
@@ -36,7 +35,6 @@ export interface IEpubPreferences {
   invertGaijiFilter?: boolean | number | null,
   iOSPatch?: boolean | null,
   iPadOSPatch?: boolean | null,
-  layoutStrategy?: LayoutStrategy | null,
   letterSpacing?: number | null,
   ligatures?: boolean | null,
   lineHeight?: number | null,
@@ -81,7 +79,6 @@ export class EpubPreferences implements ConfigurablePreferences {
   invertGaijiFilter?: boolean | number | null;
   iOSPatch?: boolean | null;
   iPadOSPatch?: boolean | null;
-  layoutStrategy?: LayoutStrategy | null;
   letterSpacing?: number | null;
   ligatures?: boolean | null;
   lineHeight?: number | null;
@@ -125,7 +122,6 @@ export class EpubPreferences implements ConfigurablePreferences {
     this.invertGaijiFilter = ensureFilter(preferences.invertGaijiFilter);
     this.iOSPatch = ensureBoolean(preferences.iOSPatch);
     this.iPadOSPatch = ensureBoolean(preferences.iPadOSPatch);
-    this.layoutStrategy = ensureEnumValue<LayoutStrategy>(preferences.layoutStrategy, LayoutStrategy);
     this.letterSpacing = ensureNonNegative(preferences.letterSpacing);
     this.ligatures = ensureBoolean(preferences.ligatures);
     this.lineHeight = ensureNonNegative(preferences.lineHeight);
