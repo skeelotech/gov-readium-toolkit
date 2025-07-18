@@ -20,10 +20,15 @@ export class ScrollSnapper extends Snapper {
     }
 
     private reportProgress() {
-        const scrollTop = this.doc().scrollTop;
+        // We have to round up the scroll position because
+        // Android may never reach 100% of the scroll height
+        // due to the way it rounds scrollTop…
+        const scrollTop = Math.ceil(this.doc().scrollTop);
         const scrollHeight = this.doc().scrollHeight;
+        const viewportHeight = this.wnd.innerHeight;
         const progress = Math.max(0, Math.min(1, scrollTop / scrollHeight));
-        const viewportEnd = Math.max(0, Math.min(1, (scrollTop + this.wnd.innerHeight) / scrollHeight));
+        const viewportEnd = Math.max(0, Math.min(1, (scrollTop + viewportHeight) / scrollHeight));
+
         this.comms.send("progress", {
             start: progress,
             end: viewportEnd
@@ -78,8 +83,13 @@ export class ScrollSnapper extends Snapper {
             // Only the content at the start of the document, 
             // whose height is the viewport height, will be rendered.
             const currentScroll = this.doc().scrollTop;
-            this.doc().scrollTop = currentScroll + 1;
+            if (currentScroll > 1) {
+                this.doc().scrollTop = currentScroll - 1;
+            } else {
+                this.doc().scrollTop = currentScroll + 1;
+            }
             this.doc().scrollTop = currentScroll;
+
         });
 
         comms.register("go_progression", ScrollSnapper.moduleName, (data, ack) => {
