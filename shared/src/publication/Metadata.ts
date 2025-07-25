@@ -8,11 +8,13 @@ import {
   datefromJSON,
   positiveNumberfromJSON,
 } from '../util/JSONParse';
+import { AltIdentifier } from './AltIdentifier';
 import { BelongsTo } from './BelongsTo';
 import { Contributors } from './Contributor';
 import { LocalizedString } from './LocalizedString';
 import { ReadingProgression } from './ReadingProgression';
 import { Subjects } from './Subject';
+import { TDM } from './TDM';
 
 /**
  * https://readium.org/webpub-manifest/schema/metadata.schema.json
@@ -26,6 +28,7 @@ export class Metadata {
   public title: LocalizedString;
   public typeUri?: string;
   public identifier?: string;
+  public altIdentifier?: AltIdentifier;
   public subtitle?: LocalizedString;
   public sortAs?: LocalizedString;
   public artists?: Contributors;
@@ -52,6 +55,7 @@ export class Metadata {
   public readingProgression?: ReadingProgression;
   public duration?: number;
   public numberOfPages?: number;
+  public tdm?: TDM;
   public otherMetadata?: { [key: string]: any };
 
   /**All metadata not in otherMetadata */
@@ -59,6 +63,7 @@ export class Metadata {
     'title',
     '@type',
     'identifier',
+    'altIdentifier',
     'subtitle',
     'sortAs',
     'artist',
@@ -83,6 +88,7 @@ export class Metadata {
     'readingProgression',
     'duration',
     'numberOfPages',
+    'tdm'
   ];
 
   /** Creates [Metadata] object */
@@ -90,6 +96,7 @@ export class Metadata {
     title: LocalizedString;
     typeUri?: string;
     identifier?: string;
+    altIdentifier?: AltIdentifier;
     subtitle?: LocalizedString;
     sortAs?: LocalizedString;
     artists?: Contributors;
@@ -116,12 +123,14 @@ export class Metadata {
     readingProgression?: ReadingProgression;
     duration?: number;
     numberOfPages?: number;
+    tdm?: TDM;
     otherMetadata?: { [key: string]: any };
   }) {
     //title always required
     this.title = values.title as LocalizedString;
     this.typeUri = values.typeUri;
     this.identifier = values.identifier;
+    this.altIdentifier = values.altIdentifier;
     this.subtitle = values.subtitle;
     this.sortAs = values.sortAs;
     this.artists = values.artists;
@@ -166,6 +175,7 @@ export class Metadata {
     this.readingProgression = values.readingProgression;
     this.duration = values.duration;
     this.numberOfPages = values.numberOfPages;
+    this.tdm = values.tdm;
     this.otherMetadata = values.otherMetadata;
   }
 
@@ -180,6 +190,7 @@ export class Metadata {
     const title = LocalizedString.deserialize(json.title) as LocalizedString;
     const typeUri = json['@type'];
     const identifier = json.identifier;
+    const altIdentifier = AltIdentifier.deserialize(json.altIdentifier);
     const subtitle = LocalizedString.deserialize(json.subtitle);
     const sortAs = LocalizedString.deserialize(json.sortAs);
     const artists = Contributors.deserialize(json.artist);
@@ -204,6 +215,7 @@ export class Metadata {
     const readingProgression = json.readingProgression;
     const duration = positiveNumberfromJSON(json.duration);
     const numberOfPages = positiveNumberfromJSON(json.numberOfPages);
+    const tdm = TDM.deserialize(json.tdm);
 
     let otherMetadata = Object.assign({}, json);
     Metadata.mappedProperties.forEach(x => delete otherMetadata[x]);
@@ -215,6 +227,7 @@ export class Metadata {
       title,
       typeUri,
       identifier,
+      altIdentifier,
       subtitle,
       sortAs,
       artists,
@@ -239,7 +252,8 @@ export class Metadata {
       readingProgression,
       duration,
       numberOfPages,
-      otherMetadata,
+      tdm,
+      otherMetadata
     });
   }
 
@@ -250,6 +264,7 @@ export class Metadata {
     const json: any = { title: this.title.serialize() };
     if (this.typeUri !== undefined) json['@type'] = this.typeUri;
     if (this.identifier !== undefined) json.identifier = this.identifier;
+    if (this.altIdentifier) json.altIdentifier = this.altIdentifier.serialize();
     if (this.subtitle) json.subtitle = this.subtitle.serialize();
     if (this.sortAs) json.sortAs = this.sortAs.serialize();
     if (this.editors) json.editor = this.editors.serialize();
@@ -278,6 +293,7 @@ export class Metadata {
     if (this.duration !== undefined) json.duration = this.duration;
     if (this.numberOfPages !== undefined)
       json.numberOfPages = this.numberOfPages;
+    if (this.tdm) json.tdm = this.tdm.serialize();
 
     if (this.otherMetadata) {
       const metadata = this.otherMetadata;
