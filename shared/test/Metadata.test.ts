@@ -4,6 +4,8 @@ import {
   LocalizedString,
   Metadata,
   BelongsTo,
+  Layout,
+  Profile,
   ReadingProgression,
   Subject,
   Subjects,
@@ -25,6 +27,7 @@ describe('Metadata Tests', () => {
         identifier: '1234',
         altIdentifier: { scheme: 'http://example.com/scheme', value: 'test-1234' },
         '@type': 'epub',
+        conformsTo: 'https://readium.org/webpub-manifest/profiles/epub',
         title: { en: 'Title', fr: 'Titre' },
         subtitle: { en: 'Subtitle', fr: 'Sous-titre' },
         modified: '2001-01-01T12:36:27.000Z',
@@ -45,6 +48,7 @@ describe('Metadata Tests', () => {
         contributor: 'Contributor',
         publisher: 'Publisher',
         imprint: 'Imprint',
+        layout: 'fixed',
         readingProgression: 'rtl',
         description: 'Description',
         duration: 4.24,
@@ -70,6 +74,7 @@ describe('Metadata Tests', () => {
           value: 'test-1234',
         }),
         typeUri: 'epub',
+        conformsTo: [Profile.EPUB],
         title: new LocalizedString({
           en: 'Title',
           fr: 'Titre',
@@ -125,6 +130,7 @@ describe('Metadata Tests', () => {
         imprints: new Contributors([
           new Contributor({ name: new LocalizedString('Imprint') }),
         ]),
+        layout: Layout.fixed,
         readingProgression: ReadingProgression.rtl,
         description: 'Description',
         duration: 4.24,
@@ -227,6 +233,7 @@ describe('Metadata Tests', () => {
           value: 'test-1234',
         }),
         typeUri: 'epub',
+        conformsTo: [Profile.EPUB],
         title: new LocalizedString({
           en: 'Title',
           fr: 'Titre',
@@ -285,6 +292,7 @@ describe('Metadata Tests', () => {
         imprints: new Contributors([
           new Contributor({ name: new LocalizedString('Imprint') }),
         ]),
+        layout: Layout.fixed,
         readingProgression: ReadingProgression.rtl,
         description: 'Description',
         duration: 4.24,
@@ -324,6 +332,7 @@ describe('Metadata Tests', () => {
       identifier: '1234',
       altIdentifier: { scheme: 'http://example.com/scheme', value: 'test-1234' },
       '@type': 'epub',
+      conformsTo: ['https://readium.org/webpub-manifest/profiles/epub'],
       title: { en: 'Title', fr: 'Titre' },
       subtitle: { en: 'Subtitle', fr: 'Sous-titre' },
       modified: '2001-01-01T12:36:27.000Z',
@@ -347,6 +356,7 @@ describe('Metadata Tests', () => {
       contributor: [{ name: { undefined: 'Contributor' } }],
       publisher: [{ name: { undefined: 'Publisher' } }],
       imprint: [{ name: { undefined: 'Imprint' } }],
+      layout: 'fixed',
       readingProgression: 'rtl',
       description: 'Description',
       duration: 4.24,
@@ -371,7 +381,7 @@ describe('Metadata Tests', () => {
         title: new LocalizedString('Title'),
       }).serialize()
     ).toEqual({
-      title: { undefined: 'Title' },
+      title: { undefined: 'Title' }
     });
   });
 
@@ -383,9 +393,7 @@ describe('Metadata Tests', () => {
   }
 
   it('effectiveReadingProgression falls back on LTR', () => {
-    const metadata = createMetadata({
-      readingProgression: ReadingProgression.auto,
-    });
+    const metadata = createMetadata({});
     expect(metadata.effectiveReadingProgression).toEqual(
       ReadingProgression.ltr
     );
@@ -404,31 +412,26 @@ describe('Metadata Tests', () => {
     expect(
       createMetadata({
         languages: ['zh-Hant'],
-        readingProgression: ReadingProgression.auto,
       }).effectiveReadingProgression
     ).toEqual(ReadingProgression.rtl);
     expect(
       createMetadata({
         languages: ['zh-TW'],
-        readingProgression: ReadingProgression.auto,
       }).effectiveReadingProgression
     ).toEqual(ReadingProgression.rtl);
     expect(
       createMetadata({
         languages: ['ar'],
-        readingProgression: ReadingProgression.auto,
       }).effectiveReadingProgression
     ).toEqual(ReadingProgression.rtl);
     expect(
       createMetadata({
         languages: ['fa'],
-        readingProgression: ReadingProgression.auto,
       }).effectiveReadingProgression
     ).toEqual(ReadingProgression.rtl);
     expect(
       createMetadata({
         languages: ['he'],
-        readingProgression: ReadingProgression.auto,
       }).effectiveReadingProgression
     ).toEqual(ReadingProgression.rtl);
     expect(
@@ -443,7 +446,6 @@ describe('Metadata Tests', () => {
     expect(
       createMetadata({
         languages: ['ar', 'fa'],
-        readingProgression: ReadingProgression.auto,
       }).effectiveReadingProgression
     ).toEqual(ReadingProgression.ltr);
   });
@@ -452,7 +454,6 @@ describe('Metadata Tests', () => {
     expect(
       createMetadata({
         languages: ['AR'],
-        readingProgression: ReadingProgression.auto,
       }).effectiveReadingProgression
     ).toEqual(ReadingProgression.rtl);
   });
@@ -461,14 +462,89 @@ describe('Metadata Tests', () => {
     expect(
       createMetadata({
         languages: ['ar-foo'],
-        readingProgression: ReadingProgression.auto,
       }).effectiveReadingProgression
     ).toEqual(ReadingProgression.rtl);
     expect(
       createMetadata({
         languages: ['zh-foo'],
-        readingProgression: ReadingProgression.auto,
       }).effectiveReadingProgression
     ).toEqual(ReadingProgression.ltr);
+  });
+
+  it('effectiveLayout returns null for Web Publication', () => {
+    const metadata = new Metadata({
+      title: new LocalizedString('Title'),
+    });
+    expect(metadata.effectiveLayout).toBeNull();
+  });
+
+  it('effectiveLayout returns null for PDF profile', () => {
+    const metadata = new Metadata({
+      title: new LocalizedString('Title'),
+      conformsTo: [Profile.PDF],
+      layout: Layout.fixed,
+    });
+    expect(metadata.effectiveLayout).toBeNull();
+  });
+
+  it('effectiveLayout returns null for Audiobook profile', () => {
+    const metadata = new Metadata({
+      title: new LocalizedString('Title'),
+      conformsTo: [Profile.AUDIOBOOK],
+      layout: Layout.reflowable,
+    });
+    expect(metadata.effectiveLayout).toBeNull();
+  });
+
+  it('effectiveLayout returns reflowable for EPUB profile without layout', () => {
+    const metadata = new Metadata({
+      title: new LocalizedString('Title'),
+      conformsTo: [Profile.EPUB],
+    });
+    expect(metadata.effectiveLayout).toBe(Layout.reflowable);
+  });
+
+  it('effectiveLayout returns explicit layout for EPUB profile', () => {
+    const metadata = new Metadata({
+      title: new LocalizedString('Title'),
+      conformsTo: [Profile.EPUB],
+      layout: Layout.fixed,
+    });
+    expect(metadata.effectiveLayout).toBe(Layout.fixed);
+  });
+
+  it('effectiveLayout returns fixed for Divina profile without layout', () => {
+    const metadata = new Metadata({
+      title: new LocalizedString('Title'),
+      conformsTo: [Profile.DIVINA],
+    });
+    expect(metadata.effectiveLayout).toBe(Layout.fixed);
+  });
+
+  it('effectiveLayout ignores reflowable layout for Divina profile', () => {
+    const metadata = new Metadata({
+      title: new LocalizedString('Title'),
+      conformsTo: [Profile.DIVINA],
+      layout: Layout.reflowable,
+    });
+    expect(metadata.effectiveLayout).toBe(Layout.fixed);
+  });
+
+  it('effectiveLayout returns explicit layout for Divina profile', () => {
+    const metadata = new Metadata({
+      title: new LocalizedString('Title'),
+      conformsTo: [Profile.DIVINA],
+      layout: Layout.scrolled,
+    });
+    expect(metadata.effectiveLayout).toBe(Layout.scrolled);
+  });
+
+  it('effectiveLayout stops at first matching profile', () => {
+    const metadata = new Metadata({
+      title: new LocalizedString('Title'),
+      conformsTo: [Profile.EPUB, Profile.DIVINA],
+      layout: Layout.fixed,
+    });
+    expect(metadata.effectiveLayout).toBe(Layout.fixed);
   });
 });
