@@ -11,8 +11,9 @@ import {
   Subjects,
   TDM,
   TDMReservation,
-  AltIdentifier,
+  AltIdentifier
 } from '../src';
+import { Accessibility, AccessMode, AccessibilityProfile, Feature, Hazard, Exemption, PrimaryAccessMode, Certification } from '../src/publication/accessibility/Accessibility';
 
 describe('Metadata Tests', () => {
   it('parse minimal JSON', () => {
@@ -65,6 +66,23 @@ describe('Metadata Tests', () => {
         },
         'other-metadata1': 'value',
         'other-metadata2': [42],
+        accessibility: {
+          conformsTo: ['http://www.idpf.org/epub/a11y/accessibility-20170105.html#wcag-aa'],
+          accessMode: ['textual', 'visual'],
+          accessModeSufficient: [
+              ["textual"],
+              ["visual"]
+          ],
+          feature: ['alternativeText', 'ARIA'],
+          hazard: ['noFlashingHazard'],
+          exemption: ['eaa-disproportionate-burden'],
+          certification: {
+            certifiedBy: 'Certifier',
+            credential: 'Certification',
+            report: 'https://example.com/report'
+          },
+          summary: 'This publication is accessible with text-to-speech and screen reader support'
+        }
       })
     ).toEqual(
       new Metadata({
@@ -172,6 +190,23 @@ describe('Metadata Tests', () => {
           'other-metadata1': 'value',
           'other-metadata2': [42],
         },
+        accessibility: new Accessibility({
+          conformsTo: [AccessibilityProfile.EPUB_A11Y_10_WCAG_20_AA],
+          certification: new Certification(
+            'Certifier',
+            'Certification',
+            'https://example.com/report'
+          ),
+          summary: 'This publication is accessible with text-to-speech and screen reader support',
+          accessMode: [new AccessMode('textual'), new AccessMode('visual')],
+          accessModeSufficient: [
+            new PrimaryAccessMode(['textual']),
+            new PrimaryAccessMode(['visual'])
+          ],
+          feature: [new Feature('alternativeText'), new Feature('ARIA')],
+          hazard: [new Hazard('noFlashingHazard')],
+          exemption: [new Exemption('eaa-disproportionate-burden')]
+        }),
       })
     );
   });
@@ -238,6 +273,7 @@ describe('Metadata Tests', () => {
           en: 'Title',
           fr: 'Titre',
         }),
+
         subtitle: new LocalizedString({
           en: 'Subtitle',
           fr: 'Sous-titre',
@@ -327,6 +363,23 @@ describe('Metadata Tests', () => {
           'other-metadata1': 'value',
           'other-metadata2': [42],
         },
+        accessibility: new Accessibility({
+          conformsTo: [AccessibilityProfile.EPUB_A11Y_10_WCAG_20_AA],
+          certification: new Certification(
+            'Certifier',
+            'Certification',
+            'https://example.com/report'
+          ),
+          summary: 'This publication is accessible with text-to-speech and screen reader support',
+          accessMode: [new AccessMode('textual'), new AccessMode('visual')],
+          accessModeSufficient: [
+            new PrimaryAccessMode(['textual']),
+            new PrimaryAccessMode(['visual'])
+          ],
+          feature: [new Feature('alternativeText'), new Feature('ARIA')],
+          hazard: [new Hazard('noFlashingHazard')],
+          exemption: [new Exemption('eaa-disproportionate-burden')]
+        })
       }).serialize()
     ).toEqual({
       identifier: '1234',
@@ -372,6 +425,23 @@ describe('Metadata Tests', () => {
       },
       'other-metadata1': 'value',
       'other-metadata2': [42],
+      accessibility: {
+        conformsTo: ['http://www.idpf.org/epub/a11y/accessibility-20170105.html#wcag-aa'],
+        accessMode: ['textual', 'visual'],
+        accessModeSufficient: [
+            ["textual"],
+            ["visual"]
+        ],
+        feature: ['alternativeText', 'ARIA'],
+        hazard: ['noFlashingHazard'],
+        exemption: ['eaa-disproportionate-burden'],
+        certification: {
+          certifiedBy: 'Certifier',
+          credential: 'Certification',
+          report: 'https://example.com/report'
+        },
+        summary: 'This publication is accessible with text-to-speech and screen reader support'
+      }
     });
   });
 
