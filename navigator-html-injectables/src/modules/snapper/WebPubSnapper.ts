@@ -1,15 +1,14 @@
 import { Locator, LocatorLocations, LocatorText } from "@readium/shared";
-import { Comms } from "../../comms";
+import { Comms } from "../../comms/comms";
 import { ReadiumWindow, deselect, findFirstVisibleLocator } from "../../helpers/dom";
 import { ModuleName } from "../ModuleLibrary";
 import { Snapper } from "./Snapper";
 import { rangeFromLocator } from "../../helpers/locator";
 import { forceWebkitRecalc } from "../../helpers/document";
 
-const SCROLL_SNAPPER_STYLE_ID = "readium-scroll-snapper-style";
+export class WebPubSnapper extends Snapper {
+    static readonly moduleName: ModuleName = "webpub_snapper";
 
-export class ScrollSnapper extends Snapper {
-    static readonly moduleName: ModuleName = "scroll_snapper";
     private wnd!: ReadiumWindow;
     private comms!: Comms;
     private resizeObserver!: ResizeObserver;
@@ -26,9 +25,7 @@ export class ScrollSnapper extends Snapper {
 
     private reportProgress() {
         if (!this.comms.ready) return;
-        // We have to round up the scroll position because
-        // Android may never reach 100% of the scroll height
-        // due to the way it rounds scrollTop…
+
         const scrollTop = Math.ceil(this.doc().scrollTop);
         const scrollHeight = this.doc().scrollHeight;
         const viewportHeight = this.wnd.innerHeight;
@@ -43,15 +40,13 @@ export class ScrollSnapper extends Snapper {
 
     private handleScroll = () => {
         if (!this.comms.ready) return;
-        
-        // We have to filter scroll from resize events
+
+        // Filter resize events
         if (this.isResizing) {
             return;
         }
 
-        // We have to filter the first scroll event because
-        // it is triggered by the progression sync’ing
-        // on load, and is not triggered by the user
+        // Filter initial scroll event
         if (!this.initialScrollHandled) {
             this.lastScrollTop = this.doc().scrollTop;
             this.initialScrollHandled = true;
@@ -69,7 +64,7 @@ export class ScrollSnapper extends Snapper {
                 this.lastScrollTop = currentScrollTop;
 
                 this.comms.send("scroll", deltaY);
-            
+
                 this.isScrolling = false;
             });
         }
@@ -87,31 +82,12 @@ export class ScrollSnapper extends Snapper {
             this.resizeDebounce = null;
         }
 
-        wnd.navigator.epubReadingSystem && (wnd.navigator.epubReadingSystem.layoutStyle = "scrolling");
-
-        // Add styling to hide the scrollbar
-        const style = wnd.document.createElement("style");
-        style.dataset.readium = "true";
-        style.id = SCROLL_SNAPPER_STYLE_ID;
-        style.textContent = `
-        * {
-            scrollbar-width: none; /* for Firefox */
-        }
-        
-        body::-webkit-scrollbar {
-            display: none; /* for Chrome, Safari, and Opera */
-        }
-        `;
-        wnd.document.head.appendChild(style);
-
-        // We have to debounce resize events so that
-        // we don’t send scroll events when the user
-        // resizes the window
+        // Set up resize handling
         this.resizeObserver = new ResizeObserver(() => {
             if (this.resizeDebounce) {
                 this.wnd.clearTimeout(this.resizeDebounce);
             }
-            
+
             this.isResizing = true;
             this.resizeDebounce = this.wnd.setTimeout(() => {
                 this.isResizing = false;
@@ -123,7 +99,7 @@ export class ScrollSnapper extends Snapper {
 
         wnd.addEventListener("scroll", this.handleScroll, { passive: true });
 
-        comms.register("force_webkit_recalc", ScrollSnapper.moduleName, () => {
+        comms.register("force_webkit_recalc", WebPubSnapper.moduleName, () => {
             forceWebkitRecalc(this.wnd);
 
             // We absolutely must do this because overflown content
@@ -139,7 +115,7 @@ export class ScrollSnapper extends Snapper {
             this.doc().scrollTop = currentScroll;
         });
 
-        comms.register("go_progression", ScrollSnapper.moduleName, (data, ack) => {
+        comms.register("go_progression", WebPubSnapper.moduleName, (data, ack) => {
             const position = data as number;
 
             if (position < 0 || position > 1) {
@@ -151,14 +127,14 @@ export class ScrollSnapper extends Snapper {
             }
 
             this.wnd.requestAnimationFrame(() => {
-              this.doc().scrollTop = this.doc().offsetHeight * position;
-              this.reportProgress();
-              deselect(this.wnd);
-              ack(true);
-          });
+                this.doc().scrollTop = this.doc().offsetHeight * position;
+                this.reportProgress();
+                deselect(this.wnd);
+                ack(true);
+            });
         });
 
-        comms.register("go_id", ScrollSnapper.moduleName, (data, ack) => {
+        this.comms.register("go_id", WebPubSnapper.moduleName, (data, ack) => {
             const element = wnd.document.getElementById(data as string);
             if(!element) {
                 ack(false);
@@ -172,13 +148,12 @@ export class ScrollSnapper extends Snapper {
             });
         });
 
-        comms.register("go_text", ScrollSnapper.moduleName, (data, ack) => {
+        comms.register("go_text", WebPubSnapper.moduleName, (data, ack) => {
             let cssSelector = undefined;
             if(Array.isArray(data)) {
                 if(data.length > 1)
-                    // Second element is presumed to be the CSS selector
                     cssSelector = (data as unknown[])[1] as string;
-                data = data[0]; // First element will always be the locator text object
+                data = data[0];
             }
             const text = LocatorText.deserialize(data);
             const r = rangeFromLocator(this.wnd.document, new Locator({
@@ -203,21 +178,21 @@ export class ScrollSnapper extends Snapper {
             });
         });
 
-        comms.register("go_start", ScrollSnapper.moduleName, (_, ack) => {
+        comms.register("go_start", WebPubSnapper.moduleName, (_, ack) => {
             if (this.doc().scrollTop === 0) return ack(false);
             this.doc().scrollTop = 0;
             this.reportProgress();
             ack(true);
         });
 
-        comms.register("go_end", ScrollSnapper.moduleName, (_, ack) => {
+        comms.register("go_end", WebPubSnapper.moduleName, (_, ack) => {
             if (this.doc().scrollTop === this.doc().scrollHeight - this.doc().offsetHeight) return ack(false);
             this.doc().scrollTop = this.doc().scrollHeight - this.doc().offsetHeight;
             this.reportProgress();
             ack(true);
-        })
+        });
 
-        comms.register("unfocus", ScrollSnapper.moduleName, (_, ack) => {
+        comms.register("unfocus", WebPubSnapper.moduleName, (_, ack) => {
             deselect(this.wnd);
             ack(true);
         });
@@ -225,29 +200,27 @@ export class ScrollSnapper extends Snapper {
         comms.register([
             "go_next",
             "go_prev",
-        ], ScrollSnapper.moduleName, (_, ack) => ack(false));
-
-        comms.register("focus", ScrollSnapper.moduleName, (_, ack) => {
+        ], WebPubSnapper.moduleName, (_, ack) => ack(false));
+        comms.register("focus", WebPubSnapper.moduleName, (_, ack) => {
             this.reportProgress();
             ack(true);
         });
 
-        comms.register("first_visible_locator", ScrollSnapper.moduleName, (_, ack) => {
-            const locator = findFirstVisibleLocator(wnd as ReadiumWindow, true);
-            this.comms.send("first_visible_locator", locator.serialize());
+        comms.register("first_visible_locator", WebPubSnapper.moduleName, (_, ack) => {
+            const locator = findFirstVisibleLocator(wnd, true);
+            comms.send("first_visible_locator", locator.serialize());
             ack(true);
         });
 
-        comms.log("ScrollSnapper Mounted");
+        comms.log("WebPubSnapper Mounted");
         return true;
     }
 
     unmount(wnd: ReadiumWindow, comms: Comms): boolean {
-        comms.unregisterAll(ScrollSnapper.moduleName);
+        comms.unregisterAll(WebPubSnapper.moduleName);
         this.resizeObserver.disconnect();
         if (this.handleScroll) wnd.removeEventListener("scroll", this.handleScroll);
-        wnd.document.getElementById(SCROLL_SNAPPER_STYLE_ID)?.remove();
-        comms.log("ScrollSnapper Unmounted");
+        comms.log("WebPubSnapper Unmounted");
         return true;
     }
 }
