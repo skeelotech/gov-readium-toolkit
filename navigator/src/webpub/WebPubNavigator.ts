@@ -1,9 +1,11 @@
-import { Link, Locator, Publication, ReadingProgression, LocatorLocations } from "@readium/shared";
+import { Feature, Link, Locator, Publication, ReadingProgression, LocatorLocations } from "@readium/shared";
 import { VisualNavigator, VisualNavigatorViewport, ProgressionRange } from "../Navigator";
 import { Configurable } from "../preferences/Configurable";
 import { WebPubFramePoolManager } from "./WebPubFramePoolManager";
 import { BasicTextSelection, CommsEventKey, FrameClickEvent, ModuleLibrary, ModuleName, WebPubModules } from "@readium/navigator-html-injectables";
 import * as path from "path-browserify";
+import { WebPubFrameManager } from "./WebPubFrameManager";
+
 import { ManagerEventKey } from "../epub/EpubNavigator";
 import { WebPubCSS } from "./css/WebPubCSS";
 import { WebUserProperties } from "./css/Properties";
@@ -12,7 +14,6 @@ import { IWebPubDefaults, WebPubDefaults } from "./preferences/WebPubDefaults";
 import { WebPubSettings } from "./preferences/WebPubSettings";
 import { IPreferencesEditor } from "../preferences/PreferencesEditor";
 import { WebPubPreferencesEditor } from "./preferences/WebPubPreferencesEditor";
-
 export interface WebPubNavigatorConfiguration {
     preferences: IWebPubPreferences;
     defaults: IWebPubDefaults;
@@ -71,7 +72,7 @@ export class WebPubNavigator extends VisualNavigator implements Configurable<Web
         // Initialize preference system
         this._preferences = new WebPubPreferences(configuration.preferences);
         this._defaults = new WebPubDefaults(configuration.defaults);
-        this._settings = new WebPubSettings(this._preferences, this._defaults);
+        this._settings = new WebPubSettings(this._preferences, this._defaults, this.hasDisplayTransformability);
         this._css = new WebPubCSS({
             userProperties: new WebUserProperties({ zoom: this._settings.zoom })
         });
@@ -115,7 +116,7 @@ export class WebPubNavigator extends VisualNavigator implements Configurable<Web
     }
 
     private async applyPreferences() {
-        this._settings = new WebPubSettings(this._preferences, this._defaults);
+        this._settings = new WebPubSettings(this._preferences, this._defaults, this.hasDisplayTransformability);
 
         if (this._preferencesEditor !== null) {
             this._preferencesEditor = new WebPubPreferencesEditor(this._preferences, this.settings, this.pub.metadata);
@@ -144,6 +145,20 @@ export class WebPubNavigator extends VisualNavigator implements Configurable<Web
     private async commitCSS(css: WebPubCSS) {
         const properties = this.compileCSSProperties(css);
         this.framePool.setCSSProperties(properties);
+    }
+
+    /**
+     * Exposed to the public to compensate for lack of implemented readium conveniences
+     * TODO remove when settings management is incorporated
+     */
+    public get _cframes(): (WebPubFrameManager | undefined)[] {
+        return this.framePool.currentFrames;
+    }
+
+    private get hasDisplayTransformability(): boolean {
+        return this.pub.metadata?.accessibility?.feature?.some(
+            f => f.value === Feature.DISPLAY_TRANSFORMABILITY.value
+        ) ?? false;
     }
 
     public eventListener(key: CommsEventKey | ManagerEventKey, data: unknown) {
