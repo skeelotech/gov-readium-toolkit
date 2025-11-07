@@ -50,7 +50,10 @@ const cssSelectorGenerator = (doc: Document) => scriptify(doc, cached("css-selec
 
 // Note: we aren't blocking some of the events right now to try and be as nonintrusive as possible.
 // For a more comprehensive implementation, see https://github.com/hackademix/noscript/blob/3a83c0e4a506f175e38b0342dad50cdca3eae836/src/content/syncFetchPolicy.js#L142
+// The snippet of code at the beginning of this source is an attempt at defence against JS using persistent storage
 const rBefore = (doc: Document) => scriptify(doc, cached("JS-Before", () => blobify(stripJS(`
+    const noop=()=>{},emptyObj={},emptyPromise=()=>Promise.resolve(void 0),fakeStorage={getItem:noop,setItem:noop,removeItem:noop,clear:noop,key:noop,length:0};["localStorage","sessionStorage"].forEach((e=>Object.defineProperty(window,e,{get:()=>fakeStorage,configurable:!0}))),Object.defineProperty(document,"cookie",{get:()=>"",set:noop,configurable:!0}),Object.defineProperty(window,"indexedDB",{get:()=>{},configurable:!0}),Object.defineProperty(window,"caches",{get:()=>emptyObj,configurable:!0}),Object.defineProperty(navigator,"storage",{get:()=>({persist:emptyPromise,persisted:emptyPromise,estimate:()=>Promise.resolve({quota:0,usage:0})}),configurable:!0}),Object.defineProperty(navigator,"serviceWorker",{get:()=>({register:emptyPromise,getRegistration:emptyPromise,ready:emptyPromise()}),configurable:!0});
+
     window._readium_blockedEvents = [];
     window._readium_blockEvents = true;
     window._readium_eventBlocker = (e) => {
@@ -78,6 +81,24 @@ const rAfter = (doc: Document) => scriptify(doc, cached("JS-After", () => blobif
     });`
 ), "text/javascript")));
 
+const csp = (domains: string[]) => {
+    const d = domains.join(" ");
+    return [
+        // 'self' is useless because the document is loaded from a blob: URL
+        `upgrade-insecure-requests`,
+        `default-src ${d} blob:`,
+        `connect-src 'none'`, // No fetches to anywhere. TODO: change?
+        `script-src ${d} blob: 'unsafe-inline'`, // JS scripts
+        `style-src ${d} blob: 'unsafe-inline'`, // CSS styles
+        `img-src ${d} blob: data:`, // Images
+        `font-src ${d} blob: data:`, // Fonts
+        `object-src ${d} blob:`, // Despite not being recommended, still necessary in EPUBs for <object>
+        `child-src ${d}`, // <iframe>, web workers
+        `form-action 'none'`, // No form submissions
+        //`report-uri ?`,
+    ].join("; ");
+};
+
 export default class FrameBlobBuider {
     private readonly item: Link;
     private readonly burl: string;
@@ -93,7 +114,7 @@ export default class FrameBlobBuider {
 
     public async build(fxl = false): Promise<string> {
         if(!this.item.mediaType.isHTML) {
-            if(this.item.mediaType.isBitmap) {
+            if(this.item.mediaType.isBitmap || this.item.mediaType.equals(MediaType.SVG)) {
                 return this.buildImageFrame();
             } else
                 throw Error("Unsupported frame mediatype " + this.item.mediaType.string);
@@ -115,7 +136,7 @@ export default class FrameBlobBuider {
             const details = perror.querySelector("div");
             throw new Error(`Failed parsing item ${this.item.href}: ${details?.textContent || perror.textContent}`);
         }
-        return this.finalizeDOM(doc, this.burl, this.item.mediaType, fxl, this.cssProperties);
+        return this.finalizeDOM(doc, this.pub.baseURL, this.burl, this.item.mediaType, fxl, this.cssProperties);
     }
 
     private buildImageFrame(): string {
@@ -126,7 +147,7 @@ export default class FrameBlobBuider {
         simg.alt = this.item.title || "";
         simg.decoding = "async";
         doc.body.appendChild(simg);
-        return this.finalizeDOM(doc, this.burl, this.item.mediaType, true);
+        return this.finalizeDOM(doc, this.pub.baseURL, this.burl, this.item.mediaType, true);
     }
 
     // Has JS that may have side-effects when the document is loaded, without any user interaction
@@ -159,7 +180,7 @@ export default class FrameBlobBuider {
         }
     }
 
-    private finalizeDOM(doc: Document, base: string | undefined, mediaType: MediaType, fxl = false, cssProperties?: { [key: string]: string }): string {
+    private finalizeDOM(doc: Document, root: string | undefined, base: string | undefined, mediaType: MediaType, fxl = false, cssProperties?: { [key: string]: string }): string {
         if(!doc) return "";
 
         // Inject styles
@@ -233,8 +254,8 @@ export default class FrameBlobBuider {
         ) {
             document.documentElement.dir = this.pub.metadata.effectiveReadingProgression;
         } */
-    
-        if(base !== undefined) {
+
+        if (base !== undefined) {
             // Set all URL bases. Very convenient!
             const b = doc.createElement("base");
             b.href = base;
@@ -244,17 +265,24 @@ export default class FrameBlobBuider {
 
         // Inject script to prevent in-publication scripts from executing until we want them to
         const hasExecutable = this.hasExecutable(doc);
-        if(hasExecutable) doc.head.firstChild!.before(rBefore(doc));
+        if (hasExecutable) doc.head.firstChild!.before(rBefore(doc));
         doc.head.firstChild!.before(cssSelectorGenerator(doc)); // CSS selector utility
-        if(hasExecutable) doc.head.appendChild(rAfter(doc)); // Another execution prevention script
+        if (hasExecutable) doc.head.appendChild(rAfter(doc)); // Another execution prevention script
+
+        // Add CSP
+        const meta = doc.createElement("meta");
+        meta.httpEquiv = "Content-Security-Policy";
+        meta.content = csp(root ? [root] : []);
+        meta.dataset.readium = "true";
+        doc.head.firstChild!.before(meta);
 
 
         // Make blob from doc
         return URL.createObjectURL(
             new Blob([new XMLSerializer().serializeToString(doc)], {
-              type: mediaType.isHTML
-                ? mediaType.string
-                : "application/xhtml+xml", // Fallback to XHTML
+                type: mediaType.isHTML
+                    ? mediaType.string
+                    : "application/xhtml+xml", // Fallback to XHTML
             })
         );
     }

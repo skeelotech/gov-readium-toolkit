@@ -23,6 +23,7 @@ export class FXLFrameManager {
         this.peripherals = peripherals;
         this.debugHref = debugHref;
         this.frame = document.createElement("iframe");
+        this.frame.sandbox.value = "allow-same-origin allow-scripts";
         this.frame.classList.add("readium-navigator-iframe");
         this.frame.classList.add("blank");
         this.frame.scrolling = "no";

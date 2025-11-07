@@ -16,6 +16,7 @@ export class FrameManager {
 
     constructor(source: string) {
         this.frame = document.createElement("iframe");
+        this.frame.sandbox.value = "allow-same-origin allow-scripts";
         this.frame.classList.add("readium-navigator-iframe");
         this.frame.style.visibility = "hidden";
         this.frame.style.setProperty("aria-hidden", "true");
