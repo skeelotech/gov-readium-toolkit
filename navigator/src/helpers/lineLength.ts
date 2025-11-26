@@ -29,6 +29,11 @@ export interface ILineLengths {
 const DEFAULT_FONT_SIZE = 16;
 const DEFAULT_FONT_FACE = fontStacks.RS__oldStyleTf;
 
+const CONTEXT_OPTIONS: CanvasRenderingContext2DSettings = {
+  willReadFrequently: true,
+  desynchronized: true
+};
+
 // Notes: 
 // 
 // We’re “embracing” design limitations of the ch length
@@ -43,7 +48,8 @@ const DEFAULT_FONT_FACE = fontStacks.RS__oldStyleTf;
 // at the end, with optimalLineLength as a ref, before returning the lineLengths object.
 
 export class LineLengths {
-  private _canvas: HTMLCanvasElement;
+  private _canvas: HTMLCanvasElement | OffscreenCanvas;
+  private _ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
 
   private _optimalChars: number;
   private _minChars?: number | null;
@@ -65,7 +71,11 @@ export class LineLengths {
   private _optimalLineLength: number | null = null;
 
   constructor(config: ILineLengthsConfig) {
-    this._canvas = document.createElement("canvas");
+    this._canvas = typeof OffscreenCanvas !== "undefined" 
+      ? new OffscreenCanvas(1, 1) 
+      : document.createElement("canvas");    
+
+    this._ctx = this._canvas.getContext("2d", CONTEXT_OPTIONS);
     this._optimalChars = config.optimalChars;
     this._minChars = config.minChars;
     this._maxChars = config.maxChars;
@@ -212,27 +222,26 @@ export class LineLengths {
 
   private measureText(fontFace: string | null) {
     // Note: We don’t clear the canvas since we’re not filling it, just measuring
-    const ctx: CanvasRenderingContext2D | null = this._canvas.getContext("2d");
-    if (ctx && fontFace) {
+    if (this._ctx && fontFace) {
       // ch based on 0, ic based on water ideograph
       let txt = this._isCJK ? "水".repeat(this._optimalChars) : "0".repeat(this._optimalChars);
-      ctx.font = `${this._baseFontSize}px ${fontFace}`;
+      this._ctx.font = `${this._baseFontSize}px ${fontFace}`;
 
       if (this._sample && this._sample.length >= this._optimalChars) {
         txt = this._sample.slice(0, this._optimalChars);
       }
 
       // Not supported in Safari
-      if (Object.hasOwn(ctx, "letterSpacing") && Object.hasOwn(ctx, "wordSpacing")) {
-        ctx.letterSpacing = this._letterSpacing.toString() + "px";
-        ctx.wordSpacing = this._wordSpacing.toString() + "px";
-        return ctx.measureText(txt).width;
+      if (Object.hasOwn(this._ctx, "letterSpacing") && Object.hasOwn(this._ctx, "wordSpacing")) {
+        (this._ctx as any).letterSpacing = this._letterSpacing.toString() + "px";
+        (this._ctx as any).wordSpacing = this._wordSpacing.toString() + "px";
+        return this._ctx.measureText(txt).width;
       } else {
         // Instead of filling text with an offset for each character and space
         // We simply add them to the measured width since we don’t need high accuracy
         const letterSpace = this._letterSpacing * (this._optimalChars - 1);
         const wordSpace = this._wordSpacing * LineLengths.approximateWordSpaces(this._optimalChars, this._sample);
-        return ctx.measureText(txt).width + letterSpace + wordSpace;
+        return this._ctx.measureText(txt).width + letterSpace + wordSpace;
       }
     } else {
       return this.getLineLengthFallback();
