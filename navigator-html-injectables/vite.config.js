@@ -8,6 +8,9 @@ export default defineConfig({
       entry: resolve(__dirname, "src/index.ts"),
       name: "navigator-html-injectables",
       fileName: "index"
+    },
+    rollupOptions: {
+      preserveEntrySignatures: "strict"
     }
   },
   define: {
@@ -16,7 +19,6 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      // Treat shared as internal source code when building standalone
       "@readium/shared": resolve(__dirname, "../shared/src")
     }
   }

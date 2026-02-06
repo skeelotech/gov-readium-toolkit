@@ -15,6 +15,9 @@ export default defineConfig({
       entry: resolve(__dirname, "src/index.ts"),
       name: "navigator",
       fileName: "index"
+    },
+    rollupOptions: {
+      preserveEntrySignatures: "strict"
     }
   },
   define: {
@@ -23,7 +26,6 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      // Treat both packages as internal source code to eliminate duplication
       "@readium/navigator-html-injectables": resolve(__dirname, "../navigator-html-injectables/src"),
       "@readium/shared": resolve(__dirname, "../shared/src")
     }

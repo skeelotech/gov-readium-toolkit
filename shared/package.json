@@ -41,6 +41,7 @@
     "src",
     "types"
   ],
+  "sideEffects": false,
   "engines": {
     "node": ">=18"
   },

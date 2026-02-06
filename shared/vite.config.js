@@ -8,6 +8,9 @@ export default defineConfig({
       entry: resolve(__dirname, "src/index.ts"),
       name: "shared",
       fileName: "index"
+    },
+    rollupOptions: {
+      preserveEntrySignatures: "strict"
     }
   },
   define: {
