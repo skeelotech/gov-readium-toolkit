@@ -155,7 +155,7 @@ export class Injector implements IInjector {
         return [...this.allowedDomains]; // Return a copy to prevent external modification
     }
 
-    public async injectForDocument(doc: Document, link: Link): Promise<void> {        
+    public async injectForDocument(doc: Document, link: Link): Promise<void> {
         for (const rule of this.rules) {
             if (this.matchesRule(rule, link)) {
                 await this.applyRule(doc, rule);
@@ -178,7 +178,7 @@ export class Injector implements IInjector {
     private async getOrCreateBlobUrl(resource: IInjectable): Promise<string> {
         // Use the injectable ID as the cache key
         const cacheKey = resource.id!; // ID is guaranteed to exist after constructor
-        
+
         if (this.blobStore.has(cacheKey)) {
             const entry = this.blobStore.get(cacheKey)!;
             entry.refCount++;
@@ -191,7 +191,7 @@ export class Injector implements IInjector {
             this.createdBlobUrls.add(url);
             return url;
         }
-        
+
         throw new Error("Resource must have a blob property");
     }
 
@@ -304,13 +304,13 @@ export class Injector implements IInjector {
         let url: string | null = null;
         try {
             url = await this.getResourceUrl(resource, doc);
-            
+
             if (resource.rel === "preload" && "url" in resource) {
                 this.createPreloadLink(doc, resource, url);
             } else {
                 const element = this.createElement(doc, resource, url);
                 createdElements.push({ element, url });
-                
+
                 if (position === "prepend") {
                     target.prepend(element);
                 } else {

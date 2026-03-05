@@ -7,6 +7,7 @@ import { IContentProtectionConfig, IKeyboardPeripheralsConfig } from "../../Navi
 
 export class FXLFrameManager {
     private frame: HTMLIFrameElement;
+    private frameIsAppended = false;
     private loader: Loader | undefined;
     public source: string;
     private comms: FrameComms | undefined;
@@ -20,6 +21,7 @@ export class FXLFrameManager {
     public debugHref: string;
     private loadPromise: Promise<Window> | undefined;
     private showPromise: Promise<void> | undefined;
+    private viewportSize: { width: number, height: number } | undefined = undefined;
 
     constructor(
         peripherals: FXLPeripherals, 
@@ -54,11 +56,13 @@ export class FXLFrameManager {
         this.wrapper = document.createElement("div");
         this.wrapper.style.position = "relative";
         this.wrapper.style.float = this.wrapper.style.cssFloat = direction === ReadingProgression.rtl ? "right" : "left";
-
-        this.wrapper.appendChild(this.frame);
     }
 
     async load(modules: ModuleName[], source: string): Promise<Window> {
+        if(!this.frameIsAppended) {
+            this.wrapper.appendChild(this.frame);
+            this.frameIsAppended = true;
+        }
         if(this.source === source && this.loadPromise/* && this.loaded*/) {
             if([...this.currModules].sort().join("|") === [...modules].sort().join("|")) {
                 return this.loadPromise;
@@ -104,6 +108,7 @@ export class FXLFrameManager {
 
     // Parses the page size from the viewport meta tag of the loaded resource.
     loadPageSize(): { width: number, height: number } {
+        if(this.viewportSize) return this.viewportSize;
         const wnd = this.frame.contentWindow!;
 
         // Try to get the page size from the viewport meta tag
@@ -120,8 +125,10 @@ export class FXLFrameManager {
                 else if(match[1] === "height")
                     height = Number.parseFloat(match[2]);
             }
-            if(width > 0 && height > 0)
-                return { width, height };
+            if(width > 0 && height > 0) {
+                this.viewportSize = { width, height };
+                return this.viewportSize;
+            }
         }
 
         // Otherwise get it from the size of the loaded content
