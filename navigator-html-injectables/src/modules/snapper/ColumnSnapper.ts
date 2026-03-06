@@ -8,6 +8,7 @@ import { rangeFromLocator } from "../../helpers/locator";
 import { ReadiumWindow, deselect, findFirstVisibleLocator } from "../../helpers/dom";
 import { PatternAnalyzer } from "../../protection/PatternAnalyzer";
 import { BaseSuspiciousActivityEvent } from "../Peripherals";
+import { isTypedOMSupported } from "../../helpers/css";
 
 const COLUMN_SNAPPER_STYLE_ID = "readium-column-snapper-style";
 
@@ -133,7 +134,13 @@ export class ColumnSnapper extends Snapper {
                 const spos = position(startX, so, elapsed, period);
                 doc.scrollLeft = spos;
                 if(this.overscroll !== 0)
-                    doc.style.transform = `translate3d(${-lpos}px, 0px, 0px)`;
+                    if(isTypedOMSupported) {
+                        doc.attributeStyleMap.set("transform", new CSSTransformValue([
+                            new CSSTranslate(CSS.px(-lpos), CSS.px(0), CSS.px(0))
+                        ]));
+                    } else {
+                        doc.style.transform = `translate3d(${-lpos}px, 0px, 0px)`;
+                    }
 
                 if (elapsed < period)
                     this.wnd.requestAnimationFrame(step);
@@ -237,10 +244,22 @@ export class ColumnSnapper extends Snapper {
         const newpos = this.alreadyScrollLeft + dro;
         if(newpos < 0) {
             this.overscroll = newpos;
-            this.doc().style.transform = `translate3d(${-this.overscroll}px, 0px, 0px)`;
+            if(isTypedOMSupported) {
+                this.doc().attributeStyleMap.set("transform", new CSSTransformValue([
+                    new CSSTranslate(CSS.px(-newpos), CSS.px(0), CSS.px(0))
+                ]));
+            } else {
+                this.doc().style.transform = `translate3d(${-newpos}px, 0px, 0px)`;
+            }
         } else if((newpos + this.wnd.innerWidth) > this.cachedScrollWidth) {
             this.overscroll = newpos;
-            this.doc().style.transform = `translate3d(${-newpos}px, 0px, 0px)`;
+            if(isTypedOMSupported) {
+                this.doc().attributeStyleMap.set("transform", new CSSTransformValue([
+                    new CSSTranslate(CSS.px(-newpos), CSS.px(0), CSS.px(0))
+                ]));
+            } else {
+                this.doc().style.transform = `translate3d(${-newpos}px, 0px, 0px)`;
+            }
         } else {
             this.overscroll = 0;
             this.doc().style.removeProperty("transform");
