@@ -15,7 +15,7 @@ export class NavigatorProtector {
     private printProtector?: PrintProtector;
     private contextMenuProtector?: ContextMenuProtector;
 
-    private dispatchSuspiciousActivity(type: string, detail: Record<string, unknown>) {
+    protected dispatchSuspiciousActivity(type: string, detail: Record<string, unknown>) {
         const event = new CustomEvent(NAVIGATOR_SUSPICIOUS_ACTIVITY_EVENT, {
             detail: {
                 type,

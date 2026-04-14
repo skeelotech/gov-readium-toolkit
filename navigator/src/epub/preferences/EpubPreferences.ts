@@ -59,7 +59,7 @@ export interface IEpubPreferences {
   wordSpacing?: number | null
 }
 
-export class EpubPreferences implements ConfigurablePreferences {
+export class EpubPreferences implements ConfigurablePreferences<EpubPreferences> {
   backgroundColor?: string | null;
   blendFilter?: boolean | null;
   constraint?: number | null;
@@ -160,7 +160,7 @@ export class EpubPreferences implements ConfigurablePreferences {
     }
   }
 
-  merging(other: ConfigurablePreferences): ConfigurablePreferences {
+  merging(other: EpubPreferences): EpubPreferences {
     const merged: IEpubPreferences = { ...this };
     for (const key of Object.keys(other) as (keyof IEpubPreferences)[]) {
       if (
@@ -176,7 +176,7 @@ export class EpubPreferences implements ConfigurablePreferences {
           (other[key] <= (other.optimalLineLength ?? merged.optimalLineLength ?? 65))
         )
       ) {
-        merged[key] = other[key];
+        (merged as Record<string, unknown>)[key] = other[key];
       }
     }
     return new EpubPreferences(merged);

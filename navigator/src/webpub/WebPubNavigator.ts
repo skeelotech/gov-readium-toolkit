@@ -12,7 +12,6 @@ import { WebUserProperties, WebRSProperties } from "./css/Properties.ts";
 import { IWebPubPreferences, WebPubPreferences } from "./preferences/WebPubPreferences.ts";
 import { IWebPubDefaults, WebPubDefaults } from "./preferences/WebPubDefaults.ts";
 import { WebPubSettings } from "./preferences/WebPubSettings.ts";
-import { IPreferencesEditor } from "../preferences/PreferencesEditor.ts";
 import { WebPubPreferencesEditor } from "./preferences/WebPubPreferencesEditor.ts";
 import { Injector } from "../injection/Injector.ts";
 import { createReadiumWebPubRules } from "../injection/webpubInjectables.ts";
@@ -185,7 +184,7 @@ export class WebPubNavigator extends VisualNavigator implements Configurable<Web
         return Object.freeze({ ...this._settings });
     }
 
-    public get preferencesEditor(): IPreferencesEditor {
+    public get preferencesEditor(): WebPubPreferencesEditor {
         if (this._preferencesEditor === null) {
             this._preferencesEditor = new WebPubPreferencesEditor(this._preferences, this.settings, this.pub.metadata);
         }
