@@ -1,5 +1,5 @@
 import { LineLengths } from "../../helpers/index.ts";
-import { getContentWidth } from "../../helpers/dimensions.ts";
+import { getContentWidth, getContentHeight } from "../../helpers/dimensions.ts";
 import { EpubSettings } from "../preferences/EpubSettings.ts";
 import { IUserProperties, RSProperties, UserProperties } from "./Properties.ts";
 
@@ -9,6 +9,7 @@ export interface IReadiumCSS {
   lineLengths: LineLengths;
   container: HTMLElement;
   constraint: number;
+  isCJKVertical?: boolean;
 }
 
 export class ReadiumCSS {
@@ -18,6 +19,7 @@ export class ReadiumCSS {
   container: HTMLElement;
   containerParent: HTMLElement;
   constraint: number;
+  private readonly isCJKVertical: boolean;
   private cachedColCount: number | null | undefined;
   private effectiveContainerWidth: number;
 
@@ -28,6 +30,7 @@ export class ReadiumCSS {
     this.container = props.container;
     this.containerParent = props.container.parentElement || document.documentElement;
     this.constraint = props.constraint;
+    this.isCJKVertical = props.isCJKVertical ?? false;
     this.cachedColCount = props.userProperties.colCount;
     this.effectiveContainerWidth = getContentWidth(this.containerParent);
   }
@@ -131,6 +134,13 @@ export class ReadiumCSS {
   }
 
   private updateLayout(scale: number | null, ignoreCompensation: boolean | null, scroll: boolean | null, colCount?: number | null) {
+    // CJK vertical text flows along the block axis (height); the inline axis
+    // (width) must not be constrained by line-length at all — use the full
+    // parent width minus the known constraint.
+    if (this.isCJKVertical) {
+      return this.computeCJKVerticalLength(scale, ignoreCompensation);
+    }
+
     const isScroll = scroll ?? this.userProperties.view === "scroll";
 
     if (isScroll) {
@@ -233,6 +243,16 @@ export class ReadiumCSS {
       effectiveContainerWidth: effectiveContainerWidth,
       effectiveLineLength: Math.round(((effectiveContainerWidth / RCSSColCount) / (scale && scale >= 1 ? scale : 1)) * zoomCompensation)
     };
+  }
+
+  private computeCJKVerticalLength(scale: number | null, ignoreCompensation: boolean | null) {
+    const w = Math.round(getContentWidth(this.containerParent) - this.constraint);
+    const h = Math.round(getContentHeight(this.containerParent));
+    const metrics = this.getCompensatedMetrics(scale, ignoreCompensation);
+    const effectiveLineLength = metrics.maximal !== null
+      ? Math.min(Math.round(metrics.maximal * metrics.zoomCompensation), h)
+      : h;
+    return { colCount: undefined, effectiveContainerWidth: w, effectiveLineLength };
   }
 
   // This behaves as paginate where colCount = 1

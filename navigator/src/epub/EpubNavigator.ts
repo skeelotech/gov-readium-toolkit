@@ -2,8 +2,7 @@ import { Layout, Link, Locator, Profile, Publication, ReadingProgression } from 
 import { Configurable, ConfigurableSettings, LineLengths, ProgressionRange, VisualNavigator, VisualNavigatorViewport } from "../index.ts";
 import { FramePoolManager } from "./frame/FramePoolManager.ts";
 import { FXLFramePoolManager } from "./fxl/FXLFramePoolManager.ts";
-import { CommsEventKey, ContextMenuEvent, FXLModules, KeyboardEventData, ModuleLibrary, ModuleName, ReflowableModules } from "@readium/navigator-html-injectables";
-import { BasicTextSelection, FrameClickEvent, SuspiciousActivityEvent } from "@readium/navigator-html-injectables";
+import { CommsEventKey, ContextMenuEvent, FXLModules, KeyboardEventData, ModuleLibrary, ModuleName, ReflowableModules, BasicTextSelection, FrameClickEvent, SuspiciousActivityEvent } from "@readium/navigator-html-injectables";
 import * as path from "path-browserify";
 import { FXLFrameManager } from "./fxl/FXLFrameManager.ts";
 import { FrameManager } from "./frame/FrameManager.ts";
@@ -16,10 +15,11 @@ import { RSProperties, UserProperties } from "./css/Properties.ts";
 import { getContentWidth } from "../helpers/dimensions.ts";
 import { Injector } from "../injection/Injector.ts";
 import { createReadiumEpubRules } from "../injection/epubInjectables.ts";
-import { IInjectablesConfig } from "../injection/Injectable.ts";
+import { IInjectableRule, IInjectablesConfig } from "../injection/Injectable.ts";
 import { IContentProtectionConfig, IKeyboardPeripheralsConfig } from "../Navigator.ts";
 import { NavigatorProtector, NAVIGATOR_SUSPICIOUS_ACTIVITY_EVENT } from "../protection/NavigatorProtector.ts";
 import { KeyboardPeripherals, NAVIGATOR_KEYBOARD_PERIPHERAL_EVENT } from "../peripherals/KeyboardPeripherals.ts";
+import { getScriptMode } from "../helpers/scriptMode.ts";
 
 export type ManagerEventKey = "zoom";
 
@@ -80,7 +80,9 @@ export class EpubNavigator extends VisualNavigator implements Configurable<Confi
     private _settings: EpubSettings;
     private _css: ReadiumCSS;
     private _preferencesEditor: EpubPreferencesEditor | null = null;
-    private readonly _injector: Injector | null = null;
+    private _injector: Injector | null = null;
+    private readonly _readiumRulesPromise: Promise<IInjectableRule[]>;
+    private readonly _injectablesConfig: IInjectablesConfig;
     private readonly _contentProtection: IContentProtectionConfig;
     private readonly _keyboardPeripherals: IKeyboardPeripheralsConfig;
     private readonly _navigatorProtector: NavigatorProtector | null = null;
@@ -108,8 +110,16 @@ export class EpubNavigator extends VisualNavigator implements Configurable<Confi
         this._preferences = new EpubPreferences(configuration.preferences);
         this._defaults = new EpubDefaults(configuration.defaults);
         this._settings = new EpubSettings(this._preferences, this._defaults);
+        // For CJK vertical, force --RS__disablePagination for the entire session.
+        // ReadiumCSS.update() never sets noVerticalPagination, so this persists.
+        const scriptMode = getScriptMode(pub.metadata);
+        const isCJKHorizontal = scriptMode === 'cjk-horizontal';
+        const isCJKVertical = scriptMode === 'cjk-vertical';
+        const isMongolianVertical = scriptMode === 'mongolian-vertical';
+        const isVertical = isCJKVertical || isMongolianVertical;
+        const isCJK = isCJKHorizontal || isCJKVertical;
         this._css = new ReadiumCSS({
-            rsProperties: new RSProperties({}),
+            rsProperties: new RSProperties({ noVerticalPagination: isVertical || undefined }),
             userProperties: new UserProperties({}),
             lineLengths: new LineLengths({
                 optimalChars: this._settings.optimalLineLength,
@@ -121,23 +131,24 @@ export class EpubNavigator extends VisualNavigator implements Configurable<Confi
                 fontFace: this._settings.fontFamily,
                 letterSpacing: this._settings.letterSpacing,
                 wordSpacing: this._settings.wordSpacing,
+                isCJK: isCJK,
             //    sample: this.pub.metadata.description
             }),
             container: container,
-            constraint: this._settings.constraint
+            constraint: this._settings.constraint,
+            isCJKVertical: isVertical
         });
 
         this._layout = EpubNavigator.determineLayout(pub, !!this._settings.scroll);
         this.currentProgression = pub.metadata.effectiveReadingProgression;
 
-        // Combine Readium rules with user-provided injectables
-        const readiumRules = createReadiumEpubRules(pub.metadata, pub.readingOrder.items);
-        const userConfig = configuration.injectables || { rules: [], allowedDomains: [] };
-
-        this._injector = new Injector({
-            rules: [...readiumRules, ...userConfig.rules],
-            allowedDomains: userConfig.allowedDomains
-        });
+        // Store user injectables config; Injector is created in load() once
+        // the async CSS rules promise has resolved.
+        this._injectablesConfig = configuration.injectables || { rules: [], allowedDomains: [] };
+        // Start loading Readium CSS rules asynchronously. The promise is
+        // awaited in load() before the Injector is created, ensuring the
+        // correct script-mode stylesheets are ready before the first frame.
+        this._readiumRulesPromise = createReadiumEpubRules(pub.metadata, pub.readingOrder.items);
 
         this._contentProtection = configuration.contentProtection || {};
 
@@ -201,6 +212,12 @@ export class EpubNavigator extends VisualNavigator implements Configurable<Confi
         if (layout === Layout.scrolled)
             return Layout.scrolled;
 
+        // CJK/Mongolian vertical writing: force scroll mode so the
+        // CJKVerticalSnapper is used and column-based pagination doesn't interfere.
+        const sm = getScriptMode(pub.metadata);
+        if (sm === 'cjk-vertical' || sm === 'mongolian-vertical')
+            return Layout.scrolled;
+
         if (layout === Layout.reflowable && scroll)
             return Layout.scrolled;
 
@@ -210,6 +227,17 @@ export class EpubNavigator extends VisualNavigator implements Configurable<Confi
     public async load() {
         if (!this.positions?.length)
             this.positions = await this.pub.positionsFromManifest();
+
+        // Build Injector now that async CSS loading has had time to resolve.
+        // (Started in the constructor, so this typically resolves immediately.)
+        if (!this._injector) {
+            const readiumRules = await this._readiumRulesPromise;
+            this._injector = new Injector({
+                rules: [...readiumRules, ...this._injectablesConfig.rules],
+                allowedDomains: this._injectablesConfig.allowedDomains
+            });
+        }
+
         if(this._layout === Layout.fixed) {
             this.framePool = new FXLFramePoolManager(
                 this.container,
@@ -312,6 +340,10 @@ export class EpubNavigator extends VisualNavigator implements Configurable<Confi
     }
 
     private async commitCSS(css: ReadiumCSS) {
+        // framePool is only available after load() — guard against early calls
+        // from the ResizeObserver which is registered in the constructor.
+        if (!this.framePool) return;
+
         // Since we’re updating the CSS properties in injectables by removing
         // the existing properties that are not inside this object first,
         // then adding all from it, we don’t compare the previous properties here
@@ -341,6 +373,7 @@ export class EpubNavigator extends VisualNavigator implements Configurable<Confi
 
         if (this._layout === Layout.fixed) {
             this.container.style.width = `${ getContentWidth(parentEl) - this._settings.constraint }px`;
+            if (!this.framePool) return;
             (this.framePool as FXLFramePoolManager).resizeHandler();
         } else {
             // for reflow ReadiumCSS gets the width from columns + line-lengths
@@ -371,7 +404,7 @@ export class EpubNavigator extends VisualNavigator implements Configurable<Confi
      * TODO remove when settings management is incorporated
      */
     public get _cframes(): (FXLFrameManager | FrameManager | undefined)[] {
-        return this.framePool.currentFrames;
+        return (this.framePool?.currentFrames ?? []).filter(f => !(f instanceof FrameManager && f.isDestroyed));
     }
 
     /**
@@ -524,12 +557,19 @@ export class EpubNavigator extends VisualNavigator implements Configurable<Confi
         if(this._layout === Layout.fixed) {
             return modules.filter((m) => FXLModules.includes(m));
         } else modules = modules.filter((m) => ReflowableModules.includes(m));
+        
+        // CJK/Mongolian vertical: uses the X-axis snapper, never column or scroll snappers
+        const mode = getScriptMode(this.pub.metadata);
+        if (mode === 'cjk-vertical' || mode === 'mongolian-vertical') {
+            return modules.filter((m) => m !== "column_snapper" && m !== "scroll_snapper");
+        }
 
         // Horizontal vs. Vertical reading
+        const all = modules as ModuleName[];
         if (this._layout === Layout.scrolled)
-            modules = modules.filter((m) => m !== "column_snapper");
+            modules = all.filter((m) => m !== "column_snapper" && m !== "cjk_vertical_snapper");
         else
-            modules = modules.filter((m) => m !== "scroll_snapper");
+            modules = all.filter((m) => m !== "scroll_snapper" && m !== "cjk_vertical_snapper");
 
         return modules;
     }
@@ -655,21 +695,19 @@ export class EpubNavigator extends VisualNavigator implements Configurable<Confi
         let first = this.currentLocation;
         let last = undefined;
 
-        // Find the last locator with a progression that's
-        // smaller than or equal to the requested progression.
-        potentialPositions.some((p, idx) => {
+        // Find the last locator whose progression is <= fromProgression.start.
+        // potentialPositions is ordered by progression ascending (0 → 1).
+        const idx = potentialPositions.findLastIndex((p) => {
             const pr = p.locations.progression ?? 0;
-            if (fromProgression.start <= pr) {
-                first = p;
-
-                // If there’s a match, check the last in view, from the next progression
-                const nextPositions = potentialPositions.splice(idx + 1, potentialPositions.length);
-                last = this.findLastPositionInProgressionRange(nextPositions, fromProgression);
-
-                return true;
-            }
-            else return false;
+            return pr <= fromProgression.start;
         });
+
+        if (idx !== -1) {
+            first = potentialPositions[idx];
+            const nextPositions = potentialPositions.slice(idx + 1);
+            last = this.findLastPositionInProgressionRange(nextPositions, fromProgression);
+        }
+
         return { first: first, last: last }
     }
 
@@ -749,9 +787,11 @@ export class EpubNavigator extends VisualNavigator implements Configurable<Confi
     }
 
     get viewport(): VisualNavigatorViewport {
-        return this._layout === Layout.fixed
-            ? (this.framePool as FXLFramePoolManager).viewport
-            : this.reflowViewport;
+        if (this._layout === Layout.fixed) {
+            if (!this.framePool) return { readingOrder: [], progressions: new Map(), positions: null };
+            return (this.framePool as FXLFramePoolManager).viewport;
+        }
+        return this.reflowViewport;
     }
 
     get isScrollStart(): boolean {
