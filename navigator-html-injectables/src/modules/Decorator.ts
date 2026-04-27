@@ -3,44 +3,51 @@ import { Comms } from "../comms/comms.ts";
 import { Module } from "./Module.ts";
 import { rangeFromLocator } from "../helpers/locator.ts";
 import { ModuleName } from "./ModuleLibrary.ts";
-import { Rect, getClientRectsNoOverlap } from "../helpers/rect.ts";
+import { Rect, getClientRectsNoOverlap, rectContainsPoint } from "../helpers/rect.ts";
 import { getProperty } from "../helpers/css.ts";
 import { ReadiumWindow } from "../helpers/dom.ts";
 import { isDarkColor, getContrastingTextColor } from "../helpers/color.ts";
 
 const DEFAULT_HIGHLIGHT_COLOR = "#FFFF00"; // Yellow in HEX
 
-export enum Width {
+export enum DecorationWidth {
     Wrap = "wrap", // Smallest width fitting the CSS border box.
     Viewport = "viewport", // Fills the whole viewport.
     Bounds = "bounds", // Fills the anchor page, useful for dual page.
     Page = "page", // Fills the whole viewport.
 }
 
-export enum Layout {
+export enum DecorationLayout {
     Boxes = "boxes", // One HTML element for each CSS border box (e.g. line of text).
     Bounds = "bounds", // A single HTML element covering the smallest region containing all CSS border boxes.
 }
 
 // TODO improve
-export interface Style {
+export interface DecorationStyle {
     tint: string; // CSS color string
-    layout: Layout; // Determines the number of created HTML elements and their position relative to the matching DOM range.
-    width: Width; // Indicates how the width of each created HTML element expands in the viewport.
+    layout: DecorationLayout; // Determines the number of created HTML elements and their position relative to the matching DOM range.
+    width: DecorationWidth; // Indicates how the width of each created HTML element expands in the viewport.
+    isActive?: boolean; // Whether user activation (click/tap) events fire for this decoration.
 }
 
 export interface Decoration {
     id: string; // Unique ID of the decoration. It must be unique in the group the decoration is applied to.
     locator: Locator; // Location in the publication where the decoration will be rendered.
-    style: Style; // Declares the look and feel of the decoration.
-    // TODO extras (userInfo)
+    style: DecorationStyle; // Declares the look and feel of the decoration.
+    extras?: Record<string, unknown>; // App-specific context data passed through to DecorationActivationEvent.
 }
 
-export interface DecoratorRequest {
-    group: string; // Unique ID of the decoration group
-    action: "add" | "remove" | "clear" | "update"; // Command
-    decoration: Decoration | undefined;
+export interface DecorationActivatedEvent {
+    decorationId: string;
+    group: string; // Human-readable group name (matches DecoratorRequest.group).
+    rect: { top: number; left: number; width: number; height: number }; // Bounding rect in iframe client coords.
+    point: { x: number; y: number }; // Click point in iframe client coords.
 }
+
+export type DecoratorRequest =
+    | { group: string; action: "add" | "update"; decoration: Decoration }
+    | { group: string; action: "remove"; decoration: Pick<Decoration, "id"> }
+    | { group: string; action: "clear" };
 
 interface DecorationItem {
     id: string;
@@ -58,9 +65,10 @@ class DecorationGroup {
     public readonly items: DecorationItem[] = [];
     private lastItemId = 0;
     private container: HTMLDivElement | undefined = undefined;
-    private activateable = false;
+    private _activatable = false;
     public readonly experimentalHighlights: boolean = false;
     private readonly notTextFlag: Map<string, boolean> | undefined;
+    private readonly activationHandler: (e: PointerEvent) => void;
 
     /**
      * Creates a DecorationGroup object
@@ -77,14 +85,16 @@ class DecorationGroup {
             this.experimentalHighlights = true;
             this.notTextFlag = new Map<string, boolean>();
         }
+        this.activationHandler = this.handleActivation.bind(this);
+        this.wnd.document.addEventListener("pointerup", this.activationHandler);
     }
 
-    get activeable() {
-        return this.activateable;
+    get activatable() {
+        return this._activatable;
     }
 
-    set activeable(value: boolean) {
-        this.activateable = value;
+    set activatable(value: boolean) {
+        this._activatable = value;
     }
 
     /**
@@ -170,6 +180,55 @@ class DecorationGroup {
     }
 
     /**
+     * Removes all decorations and tears down event listeners.
+     * Must be called when the group is permanently discarded.
+     */
+    destroy() {
+        this.clear();
+        this.wnd.document.removeEventListener("pointerup", this.activationHandler);
+    }
+
+    private handleActivation(e: PointerEvent) {
+        if (!this._activatable) return;
+        const cssX = e.clientX;
+        const cssY = e.clientY;
+        const pixelRatio = this.wnd.devicePixelRatio;
+
+        for (const item of this.items) {
+            if (!item.decoration.style?.isActive) continue;
+
+            let hit = false;
+
+            // Range.getClientRects() works for both rendering paths: the CSS Highlight API
+            // has no DOM overlay to target, and the DOM overlay divs have pointer-events: none,
+            // so in neither case is the decoration element the pointer event target.
+            const rects = item.range.getClientRects();
+            for (const rect of rects) {
+                if (rectContainsPoint(rect as Rect, cssX, cssY, 0)) { 
+                    hit = true; 
+                    break; 
+                }
+            }
+
+            if (hit) {
+                const r = item.range.getBoundingClientRect();
+                this.comms.send("decoration_activated", {
+                    decorationId: item.decoration.id,
+                    group: this.name,
+                    rect: {
+                        top: r.top * pixelRatio,
+                        left: r.left * pixelRatio,
+                        width: r.width * pixelRatio,
+                        height: r.height * pixelRatio,
+                    },
+                    point: { x: cssX * pixelRatio, y: cssY * pixelRatio },
+                } as DecorationActivatedEvent);
+                return;
+            }
+        }
+    }
+
+    /**
      * Recreates the decoration elements.
      * To be called after reflowing the resource, for example.
      */
@@ -228,18 +287,18 @@ class DecorationGroup {
             element.style.position = "absolute";
 
             // TODO change to switch
-            if (item.decoration?.style?.width === Width.Viewport) {
+            if (item.decoration?.style?.width === DecorationWidth.Viewport) {
                 element.style.width = `${viewportWidth}px`;
                 element.style.height = `${rect.height}px`;
                 let left = Math.floor(rect.left / viewportWidth) * viewportWidth;
                 element.style.left = `${left + xOffset}px`;
                 element.style.top = `${rect.top + yOffset}px`;
-            } else if (item.decoration?.style?.width === Width.Bounds) {
+            } else if (item.decoration?.style?.width === DecorationWidth.Bounds) {
                 element.style.width = `${boundingRect.width}px`;
                 element.style.height = `${rect.height}px`;
                 element.style.left = `${boundingRect.left + xOffset}px`;
                 element.style.top = `${rect.top + yOffset}px`;
-            } else if (item.decoration?.style?.width === Width.Page) {
+            } else if (item.decoration?.style?.width === DecorationWidth.Page) {
                 element.style.width = `${pageWidth}px`;
                 element.style.height = `${rect.height}px`;
                 let left = Math.floor(rect.left / pageWidth) * pageWidth;
@@ -278,7 +337,7 @@ class DecorationGroup {
         `.trim();
         const elementTemplate = template.content.firstElementChild!;
 
-        if(item.decoration?.style?.layout === Layout.Bounds) {
+        if(item.decoration?.style?.layout === DecorationLayout.Bounds) {
             const bounds = elementTemplate.cloneNode(true) as HTMLDivElement;
             bounds.style.setProperty("pointer-events", "none");
             positionElement(bounds, boundingRect, boundingRect);
@@ -403,8 +462,7 @@ export class Decorator extends Module {
     private groups = new Map<string, DecorationGroup>();
 
     private cleanup() {
-        // TODO cleanup all decorators
-        this.groups.forEach(g => g.clear());
+        this.groups.forEach(g => g.destroy());
         this.groups.clear();
     }
 
@@ -436,8 +494,10 @@ export class Decorator extends Module {
 
         comms.register("decorate", Decorator.moduleName, (data, ack) => {
             const req = data as DecoratorRequest;
-            if (req.decoration && req.decoration.locator) {
-                req.decoration.locator = Locator.deserialize(req.decoration.locator)!;
+            if (req.action === "add" || req.action === "update") {
+                if (req.decoration.locator) {
+                    req.decoration.locator = Locator.deserialize(req.decoration.locator)!;
+                }
             }
             if (!this.groups.has(req.group)) {
                 this.groups.set(req.group, new DecorationGroup(
@@ -450,19 +510,28 @@ export class Decorator extends Module {
             const group = this.groups.get(req.group);
             switch (req.action) {
                 case "add":
-                    group?.add(req.decoration!);
+                    group?.add(req.decoration);
                     break;
                 case "remove":
-                    group?.remove(req.decoration!.id);
+                    group?.remove(req.decoration.id);
                     break;
                 case "clear":
                     group?.clear();
                     break;
                 case "update":
-                    group?.update(req.decoration!);
+                    group?.update(req.decoration);
                     break;
             }
 
+            ack(true);
+        });
+
+        comms.register("decoration_activatable", Decorator.moduleName, (data, ack) => {
+            const req = data as { group: string; activatable: boolean };
+            const group = this.groups.get(req.group);
+            if (group) {
+                group.activatable = req.activatable;
+            }
             ack(true);
         });
 

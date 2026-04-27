@@ -2,9 +2,10 @@ import { Feature, Link, Locator, Publication, ReadingProgression, LocatorLocatio
 import { VisualNavigator, VisualNavigatorViewport, ProgressionRange } from "../Navigator.ts";
 import { Configurable } from "../preferences/Configurable.ts";
 import { WebPubFramePoolManager } from "./WebPubFramePoolManager.ts";
-import { BasicTextSelection, CommsEventKey, ContextMenuEvent, FrameClickEvent, KeyboardEventData, ModuleName, SuspiciousActivityEvent, WebPubModules } from "@readium/navigator-html-injectables";
+import { BasicTextSelection, CommsEventKey, ContextMenuEvent, Decoration, DecorationActivatedEvent, DecorationStyle, FrameClickEvent, KeyboardEventData, ModuleName, SuspiciousActivityEvent, WebPubModules } from "@readium/navigator-html-injectables";
 import * as path from "path-browserify";
 import { WebPubFrameManager } from "./WebPubFrameManager.ts";
+import { DecorableNavigator, DecorationActivationEvent, DecorationObserver, decorationsEqual } from "../decorations/index.ts";
 
 import { ManagerEventKey } from "../epub/EpubNavigator.ts";
 import { getScriptMode } from "../helpers/scriptMode.ts";
@@ -59,7 +60,7 @@ const defaultListeners = (listeners: WebPubNavigatorListeners): WebPubNavigatorL
     peripheral: listeners.peripheral || (() => {})
 })
 
-export class WebPubNavigator extends VisualNavigator implements Configurable<WebPubSettings, WebPubPreferences> {
+export class WebPubNavigator extends VisualNavigator implements Configurable<WebPubSettings, WebPubPreferences>, DecorableNavigator {
     private readonly pub: Publication;
     private readonly container: HTMLElement;
     private readonly listeners: WebPubNavigatorListeners;
@@ -79,6 +80,11 @@ export class WebPubNavigator extends VisualNavigator implements Configurable<Web
     private readonly _keyboardPeripheralsManager: KeyboardPeripherals | null = null;
     private readonly _suspiciousActivityListener: ((event: Event) => void) | null = null;
     private readonly _keyboardPeripheralListener: ((event: Event) => void) | null = null;
+
+    private _decorations: Map<string, Decoration[]> = new Map();
+    private _decorationObservers: Map<string, Set<DecorationObserver>> = new Map();
+    private _decorationActivationState: Map<string, boolean> = new Map();
+    private _decorationActivationConsumed = false;
 
     private webViewport: VisualNavigatorViewport = {
         readingOrder: [],
@@ -254,6 +260,7 @@ export class WebPubNavigator extends VisualNavigator implements Configurable<Web
             case "_pong":
                 this.listeners.frameLoaded(this.framePool.currentFrames[0]!.iframe.contentWindow!);
                 this.listeners.positionChanged(this.currentLocation);
+                this._reapplyDecorationsToCurrentFrame();
                 break;
             case "first_visible_locator":
                 const loc = Locator.deserialize(data as string);
@@ -270,8 +277,17 @@ export class WebPubNavigator extends VisualNavigator implements Configurable<Web
             case "text_selected":
                 this.listeners.textSelected(data as BasicTextSelection);
                 break;
+            case "decoration_activated": {
+                const handled = this._handleDecorationActivated(data as DecorationActivatedEvent);
+                if (handled) this._decorationActivationConsumed = true;
+                break;
+            }
             case "click":
             case "tap":
+                if (this._decorationActivationConsumed) {
+                    this._decorationActivationConsumed = false;
+                    break;
+                }
                 const edata = data as FrameClickEvent;
                 if (edata.interactiveElement) {
                     const element = new DOMParser().parseFromString(
@@ -384,6 +400,7 @@ export class WebPubNavigator extends VisualNavigator implements Configurable<Web
                 this.eventListener(key, value);
             };
         }
+        this._reapplyDecorationsToCurrentFrame();
     }
 
     private async apply() {
@@ -406,7 +423,126 @@ export class WebPubNavigator extends VisualNavigator implements Configurable<Web
         this._navigatorProtector?.destroy();
         this._keyboardPeripheralsManager?.destroy();
         await this.framePool?.destroy();
+        this._decorations.clear();
+        this._decorationObservers.clear();
+        this._decorationActivationState.clear();
     }
+
+    // DecorableNavigator
+
+    public supportsDecorationStyle(_style: DecorationStyle): boolean {
+        return true;
+    }
+
+    public registerDecorationObserver(group: string, observer: DecorationObserver): void {
+        if (!this._decorationObservers.has(group))
+            this._decorationObservers.set(group, new Set());
+        this._decorationObservers.get(group)!.add(observer);
+
+        this._decorationActivationState.set(group, true);
+        this._sendDecorationActivatable(group, true);
+    }
+
+    public unregisterDecorationObserver(observer: DecorationObserver): void {
+        this._decorationObservers.forEach((set, group) => {
+            if (set.has(observer)) {
+                set.delete(observer);
+                if (set.size === 0) {
+                    this._decorationActivationState.delete(group);
+                    this._sendDecorationActivatable(group, false);
+                }
+            }
+        });
+    }
+
+    private _sendDecorationActivatable(group: string, activatable: boolean): void {
+        const frame = this.framePool?.currentFrames[0];
+        if (frame?.msg) frame.msg.send("decoration_activatable", { group, activatable });
+    }
+
+    public applyDecorations(decorations: Decoration[], group: string): void {
+        const previous = this._decorations.get(group) ?? [];
+        const prevById = new Map(previous.map(d => [d.id, d]));
+        const nextById = new Map(decorations.map(d => [d.id, d]));
+
+        const toRemove: string[] = [];
+        const toAdd: Decoration[] = [];
+        const toUpdate: Decoration[] = [];
+
+        for (const [id, prev] of prevById) {
+            if (!nextById.has(id)) toRemove.push(id);
+            else if (!decorationsEqual(prev, nextById.get(id)!)) toUpdate.push(nextById.get(id)!);
+        }
+        for (const [id, next] of nextById) {
+            if (!prevById.has(id)) toAdd.push(next);
+        }
+
+        this._decorations.set(group, decorations);
+        this._sendDecorationOps(group, toRemove, toAdd, toUpdate, previous);
+
+        const activatable = this._decorationActivationState.get(group);
+        if (activatable !== undefined) this._sendDecorationActivatable(group, activatable);
+    }
+
+    private _sendDecorationOps(
+        group: string,
+        toRemove: string[],
+        toAdd: Decoration[],
+        toUpdate: Decoration[],
+        previous: Decoration[]
+    ): void {
+        const frame = this.framePool?.currentFrames[0];
+        if (!frame?.msg) return;
+        const href = this.currentLocation.href;
+        const prevById = new Map(previous.map(d => [d.id, d]));
+
+        for (const id of toRemove) {
+            const d = prevById.get(id);
+            if (!d || d.locator.href !== href) continue;
+            frame.msg.send("decorate", { group, action: "remove", decoration: { id } });
+        }
+        for (const d of toAdd) {
+            if (d.locator.href !== href) continue;
+            frame.msg.send("decorate", { group, action: "add", decoration: d });
+        }
+        for (const d of toUpdate) {
+            if (d.locator.href !== href) continue;
+            frame.msg.send("decorate", { group, action: "update", decoration: d });
+        }
+    }
+
+    private _reapplyDecorationsToCurrentFrame(): void {
+        const frame = this.framePool?.currentFrames[0];
+        if (!frame?.msg) return;
+        const href = this.currentLocation.href;
+
+        for (const [group, decorations] of this._decorations) {
+            const matching = decorations.filter(d => d.locator.href === href);
+            if (matching.length === 0) continue;
+            frame.msg.send("decorate", { group, action: "clear" });
+            for (const d of matching)
+                frame.msg.send("decorate", { group, action: "add", decoration: d });
+        }
+        for (const [group, activatable] of this._decorationActivationState) {
+            frame.msg.send("decoration_activatable", { group, activatable });
+        }
+    }
+
+    private _handleDecorationActivated(data: DecorationActivatedEvent): boolean {
+        const observers = this._decorationObservers.get(data.group);
+        if (!observers || observers.size === 0) return false;
+
+        const decoration = (this._decorations.get(data.group) ?? []).find(d => d.id === data.decorationId);
+        if (!decoration) return false;
+
+        const event: DecorationActivationEvent = { decoration, group: data.group, rect: data.rect, point: data.point };
+        let anyHandled = false;
+        for (const obs of observers)
+            if (obs.onDecorationActivated(event)) anyHandled = true;
+        return anyHandled;
+    }
+
+    // End of DecorableNavigator
 
     private async changeResource(relative: number): Promise<boolean> {
         if (relative === 0) return false;
