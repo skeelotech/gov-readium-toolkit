@@ -21,23 +21,39 @@ interface Decoration {
 
 ### DecorationStyle
 
-`DecorationStyle` controls the appearance:
+`DecorationStyle` is a union of the built-in style types and `HTMLDecorationTemplate`:
 
 ```ts
-interface DecorationStyle {
-  tint: string;                 // Any CSS color — "#ffff00", "rgba(255,200,0,0.4)", etc.
-  layout: DecorationLayout;     // DecorationLayout.Boxes | DecorationLayout.Bounds
-  width: DecorationWidth;       // DecorationWidth.Wrap | DecorationWidth.Viewport | DecorationWidth.Page | DecorationWidth.Bounds
+type DecorationStyle = BuiltinDecorationStyle | HTMLDecorationTemplate;
+```
+
+#### BuiltinDecorationStyle
+
+```ts
+interface BuiltinDecorationStyle {
+  type?: DecorationStyleType;   // Defaults to Highlight when omitted
+  tint?: string;                // Any CSS color — "#ffff00", "rgba(255,200,0,0.4)", etc.
+  layout?: DecorationLayout;    // Defaults to Boxes
+  width?: DecorationWidth;      // Defaults to Wrap
   isActive?: boolean;           // Set to true to allow the user to click/tap this decoration
 }
 ```
+
+**`DecorationStyleType`**
+
+| Value | Description |
+|---|---|
+| `DecorationStyleType.Highlight` | Background-color overlay (default). |
+| `DecorationStyleType.Underline` | Line drawn beneath the text. |
+| `DecorationStyleType.Outline` | Border drawn around each text box. |
+| `DecorationStyleType.TextColor` | Changes the text color directly. Requires CSS Highlight API; invisible in older browsers. |
 
 **`DecorationLayout`**
 
 | Value | Description |
 |---|---|
-| `DecorationLayout.Boxes` | One element per CSS border box (i.e. per line of text). Best for highlights. |
-| `DecorationLayout.Bounds` | A single element covering the bounding box of the whole range. Best for margin icons. |
+| `DecorationLayout.Boxes` | One element per CSS border box (i.e. per line of text). Default. |
+| `DecorationLayout.Bounds` | A single element covering the bounding box of the whole range. |
 
 **`DecorationWidth`**
 
@@ -47,6 +63,25 @@ interface DecorationStyle {
 | `DecorationWidth.Viewport` | Stretches to the full viewport width. |
 | `DecorationWidth.Page` | Fills one page in a paginated layout. |
 | `DecorationWidth.Bounds` | Fills the anchor page (useful in dual-page FXL). |
+
+#### HTMLDecorationTemplate
+
+For fully custom decoration rendering, use `HTMLDecorationTemplate`. The `element` string is an HTML snippet that is sanitized before injection; the `stylesheet` is injected as a `<style>` element scoped to the decoration group.
+
+```ts
+interface HTMLDecorationTemplate {
+  type: DecorationStyleType.Template;
+  layout: DecorationLayout;     // Required
+  width: DecorationWidth;       // Required
+  element: string;              // HTML snippet — sanitized before use
+  stylesheet?: string;          // CSS injected into the resource
+  isActive?: boolean;
+}
+```
+
+The `element` HTML is cloned once per positioned box (or once for `Bounds` layout). Use CSS classes and the injected `stylesheet` to style the elements. Prefix all class names and IDs with your app name to avoid conflicts — `r2-` and `readium-` are reserved.
+
+> **Security** — The `element` string is sanitized through an allowlist before injection. Script elements, event-handler attributes (`on*`), and `javascript:`/`data:` URLs are always stripped.
 
 ### Groups
 
@@ -59,16 +94,15 @@ Decoration IDs must be **unique within their group**, but the same ID can appear
 Call `applyDecorations` with the **complete desired state** for a group. The navigator diffs the new list against the previous one and sends only the necessary add / update / remove commands to the rendered frames.
 
 ```ts
-import { Decoration, DecorationLayout, DecorationWidth } from "@readium/navigator";
+import { Decoration, DecorationLayout, DecorationStyleType, DecorationWidth } from "@readium/navigator";
 
 const highlights: Decoration[] = [
   {
     id: "highlight-1",
     locator: myLocator,
     style: {
+      type: DecorationStyleType.Highlight,
       tint: "#ffff00",
-      layout: DecorationLayout.Boxes,
-      width: DecorationWidth.Wrap,
     },
   },
 ];
@@ -79,10 +113,9 @@ navigator.applyDecorations(highlights, "user-highlights");
 To update, simply call `applyDecorations` again with the new state:
 
 ```ts
-// Change the tint of highlight-1 and add highlight-2
 navigator.applyDecorations([
-  { id: "highlight-1", locator: locator1, style: { tint: "#90ee90", layout: DecorationLayout.Boxes, width: DecorationWidth.Wrap } },
-  { id: "highlight-2", locator: locator2, style: { tint: "#ffb6c1", layout: DecorationLayout.Boxes, width: DecorationWidth.Wrap } },
+  { id: "highlight-1", locator: locator1, style: { type: DecorationStyleType.Highlight, tint: "#90ee90" } },
+  { id: "highlight-2", locator: locator2, style: { type: DecorationStyleType.Underline, tint: "#ffb6c1" } },
 ], "user-highlights");
 ```
 
@@ -99,7 +132,7 @@ Decorations are **automatically reapplied** when the navigator loads a new resou
 Before enabling a feature that relies on a specific style, you can verify the navigator supports it:
 
 ```ts
-if (navigator.supportsDecorationStyle({ tint: "#ffff00", layout: DecorationLayout.Boxes, width: DecorationWidth.Wrap })) {
+if (navigator.supportsDecorationStyle({ type: DecorationStyleType.Highlight, tint: "#ffff00" })) {
   // safe to apply
 }
 ```
@@ -138,9 +171,8 @@ navigator.applyDecorations([
     id: "highlight-1",
     locator: myLocator,
     style: {
+      type: DecorationStyleType.Highlight,
       tint: "#ffff00",
-      layout: DecorationLayout.Boxes,
-      width: DecorationWidth.Wrap,
       isActive: true,        // ← required for activation events
     },
     extras: { noteId: "note-42" },  // ← passed through to DecorationActivationEvent
@@ -205,6 +237,7 @@ import {
   DecorationObserver,
   DecorationActivationEvent,
   DecorationLayout,
+  DecorationStyleType,
   DecorationWidth,
 } from "@readium/navigator";
 
@@ -236,7 +269,11 @@ function addHighlight(locator: Locator, color: string, noteId: string) {
     {
       id: crypto.randomUUID(),
       locator,
-      style: { tint: color, layout: DecorationLayout.Boxes, width: DecorationWidth.Wrap, isActive: true },
+      style: {
+        type: DecorationStyleType.Highlight,
+        tint: color,
+        isActive: true,
+      },
       extras: { noteId },
     },
   ];
@@ -259,16 +296,15 @@ await navigator.destroy();
 Search results are a good example of non-activatable decorations managed alongside activatable ones.
 
 ```ts
-import { Decoration, DecorationLayout, DecorationWidth } from "@readium/navigator";
+import { Decoration, DecorationStyleType } from "@readium/navigator";
 
 function applySearchResults(locators: Locator[], currentMatchId: string) {
   const decorations: Decoration[] = locators.map((locator, i) => ({
     id: `match-${i}`,
     locator,
     style: {
+      type: DecorationStyleType.Highlight,
       tint: `match-${i}` === currentMatchId ? "#ff8c00" : "#ffff99",
-      layout: DecorationLayout.Boxes,
-      width: DecorationWidth.Wrap,
     },
   }));
 
@@ -281,3 +317,46 @@ function clearSearch() {
 ```
 
 Because `isActive` is not set, tapping a search result falls through to normal navigation — no observer needed.
+
+## Complete Example — Custom Template (Sidemark)
+
+`HTMLDecorationTemplate` lets you supply your own HTML and CSS for a decoration. This example renders a colored sidebar mark next to each decorated paragraph.
+
+```ts
+import { Decoration, DecorationLayout, DecorationStyleType, DecorationWidth } from "@readium/navigator";
+
+const SIDEMARK_CSS = `
+  .app-sidemark {
+    position: absolute;
+    width: 4px;
+    border-radius: 2px;
+    background-color: var(--app-tint, blue);
+    margin-left: -12px;
+  }
+  [dir=rtl] .app-sidemark {
+    margin-left: 0;
+    margin-right: -12px;
+  }
+`;
+
+function sidemarkDecoration(id: string, locator: Locator, color: string): Decoration {
+  return {
+    id,
+    locator,
+    style: {
+      type: DecorationStyleType.Template,
+      layout: DecorationLayout.Bounds,
+      width: DecorationWidth.Wrap,
+      element: `<div class="app-sidemark" style="--app-tint: ${color}"></div>`,
+      stylesheet: SIDEMARK_CSS,
+    },
+  };
+}
+
+navigator.applyDecorations(
+  [sidemarkDecoration("mark-1", myLocator, "#4a90e2")],
+  "sidemarks"
+);
+```
+
+> Prefix all class names and IDs with your app name. `r2-` and `readium-` are reserved by the toolkit.

@@ -1,7 +1,8 @@
-import type { Decoration, DecorationStyle } from "@readium/navigator-html-injectables";
+import type { Decoration, DecorationStyle, BuiltinDecorationStyle, HTMLDecorationTemplate } from "@readium/navigator-html-injectables";
+import { DecorationStyleType } from "@readium/navigator-html-injectables";
 
-export type { Decoration, DecorationStyle };
-export { DecorationLayout, DecorationWidth } from "@readium/navigator-html-injectables";
+export type { Decoration, DecorationStyle, BuiltinDecorationStyle, HTMLDecorationTemplate };
+export { DecorationLayout, DecorationStyleType, DecorationWidth } from "@readium/navigator-html-injectables";
 
 export interface DecorationActivationEvent {
     decoration: Decoration;
@@ -20,14 +21,29 @@ export interface DecorationObserver {
     onDecorationActivated(event: DecorationActivationEvent): boolean;
 }
 
+function stylesEqual(a: DecorationStyle, b: DecorationStyle): boolean {
+    if (a.type !== b.type) return false;
+    if ((a.isActive ?? false) !== (b.isActive ?? false)) return false;
+    if (a.type === DecorationStyleType.Template) {
+        const ta = a as HTMLDecorationTemplate;
+        const tb = b as HTMLDecorationTemplate;
+        return ta.layout === tb.layout &&
+            ta.width === tb.width &&
+            ta.element === tb.element &&
+            ta.stylesheet === tb.stylesheet;
+    }
+    const ba = a as BuiltinDecorationStyle;
+    const bb = b as BuiltinDecorationStyle;
+    return ba.tint === bb.tint &&
+        ba.layout === bb.layout &&
+        ba.width === bb.width;
+}
+
 export function decorationsEqual(a: Decoration, b: Decoration): boolean {
     return (
         a.locator.href === b.locator.href &&
         JSON.stringify(a.locator.locations?.serialize()) === JSON.stringify(b.locator.locations?.serialize()) &&
-        a.style.tint === b.style.tint &&
-        a.style.layout === b.style.layout &&
-        a.style.width === b.style.width &&
-        (a.style.isActive ?? false) === (b.style.isActive ?? false) &&
+        stylesEqual(a.style, b.style) &&
         JSON.stringify(a.extras ?? null) === JSON.stringify(b.extras ?? null)
     );
 }

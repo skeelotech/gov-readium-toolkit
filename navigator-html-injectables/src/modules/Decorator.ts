@@ -8,6 +8,7 @@ import { getProperty } from "../helpers/css.ts";
 import { ReadiumWindow } from "../helpers/dom.ts";
 import { isDarkColor, getContrastingTextColor } from "../helpers/color.ts";
 import { sML } from "../helpers/sML.ts";
+import { sanitizeHTML } from "../helpers/sanitize.ts";
 
 const DEFAULT_HIGHLIGHT_COLOR = "#FFFF00"; // Yellow in HEX
 
@@ -28,15 +29,34 @@ export enum DecorationStyleType {
     Underline = "underline", // Underline drawn beneath the text.
     Outline   = "outline",   // Border drawn around the text boxes.
     TextColor = "textColor", // Changes the text color directly.
+    Template  = "template",  // Custom HTML template (HTMLDecorationTemplate).
 }
 
-export interface DecorationStyle {
-    type?: DecorationStyleType; // Defaults to Highlight when omitted.
-    tint?: string; // CSS color string; optional, falls back to yellow.
-    layout: DecorationLayout; // Determines the number of created HTML elements and their position relative to the matching DOM range.
-    width: DecorationWidth; // Indicates how the width of each created HTML element expands in the viewport.
-    isActive?: boolean; // Whether user activation (click/tap) events fire for this decoration.
+/** Built-in decoration styles. layout/width are optional overrides; defaults are Boxes/Wrap. */
+export interface BuiltinDecorationStyle {
+    type?: Exclude<DecorationStyleType, DecorationStyleType.Template>;
+    tint?: string;
+    layout?: DecorationLayout;
+    width?: DecorationWidth;
+    isActive?: boolean;
 }
+
+/**
+ * Custom decoration style backed by caller-supplied HTML.
+ * Matches the HTMLDecorationTemplate class from the Readium spec.
+ * The element string is sanitized before injection.
+ * --readium-tint is injected as a CSS custom property on each created element.
+ */
+export interface HTMLDecorationTemplate {
+    type: DecorationStyleType.Template;
+    layout: DecorationLayout;
+    width: DecorationWidth;
+    element: string;
+    stylesheet?: string;
+    isActive?: boolean;
+}
+
+export type DecorationStyle = BuiltinDecorationStyle | HTMLDecorationTemplate;
 
 export interface Decoration {
     id: string; // Unique ID of the decoration. It must be unique in the group the decoration is applied to.
@@ -134,9 +154,15 @@ class DecorationGroup {
                 this.notTextFlag?.set(id, true);
             }
         }
-        if (this.experimentalHighlights && decoration.style?.type === DecorationStyleType.Outline) {
-            // CSS Highlight API does not support `outline`; force DOM overlay path.
-            this.notTextFlag?.set(id, true);
+        if (this.experimentalHighlights) {
+            if (decoration.style?.type === DecorationStyleType.Outline) {
+                // CSS Highlight API does not support `outline`; force DOM overlay path.
+                this.notTextFlag?.set(id, true);
+            }
+            if (decoration.style?.type === DecorationStyleType.Template) {
+                // Custom element templates render as DOM nodes, not CSS ranges.
+                this.notTextFlag?.set(id, true);
+            }
         }
 
         const item = {
@@ -209,29 +235,40 @@ class DecorationGroup {
         for (const item of this.items) {
             if (!item.decoration.style?.isActive) continue;
 
-            let hit = false;
+            let hitRect: DOMRect | undefined;
 
-            // Range.getClientRects() works for both rendering paths: the CSS Highlight API
-            // has no DOM overlay to target, and the DOM overlay divs have pointer-events: none,
-            // so in neither case is the decoration element the pointer event target.
-            const rects = item.range.getClientRects();
-            for (const rect of rects) {
-                if (rectContainsPoint(rect as Rect, cssX, cssY, 0)) { 
-                    hit = true; 
-                    break; 
+            if (item.decoration.style.type === DecorationStyleType.Template) {
+                // Templates can be positioned anywhere (e.g. a margin sidemark), so hit-test
+                // against the rendered elements rather than the text range rects.
+                for (const el of (item.clickableElements ?? [])) {
+                    const r = el.getBoundingClientRect();
+                    if (rectContainsPoint(r as Rect, cssX, cssY, 0)) {
+                        hitRect = r;
+                        break;
+                    }
+                }
+            } else {
+                // Built-in styles sit over the text. Range.getClientRects() works for both
+                // rendering paths: the CSS Highlight API has no DOM overlay to target, and the
+                // DOM overlay divs have pointer-events: none, so neither intercepts the event.
+                const rects = item.range.getClientRects();
+                for (const rect of rects) {
+                    if (rectContainsPoint(rect as Rect, cssX, cssY, 0)) {
+                        hitRect = item.range.getBoundingClientRect();
+                        break;
+                    }
                 }
             }
 
-            if (hit) {
-                const r = item.range.getBoundingClientRect();
+            if (hitRect) {
                 this.comms.send("decoration_activated", {
                     decorationId: item.decoration.id,
                     group: this.name,
                     rect: {
-                        top: r.top * pixelRatio,
-                        left: r.left * pixelRatio,
-                        width: r.width * pixelRatio,
-                        height: r.height * pixelRatio,
+                        top: hitRect.top * pixelRatio,
+                        left: hitRect.left * pixelRatio,
+                        width: hitRect.width * pixelRatio,
+                        height: hitRect.height * pixelRatio,
                     },
                     point: { x: cssX * pixelRatio, y: cssY * pixelRatio },
                 } as DecorationActivatedEvent);
@@ -263,8 +300,10 @@ class DecorationGroup {
         const [stylesheet, highlighter]: [HTMLStyleElement, any] = this.requireContainer(true) as [HTMLStyleElement, unknown];
         highlighter.add(item.range);
 
-        const tint = item.decoration?.style?.tint ?? DEFAULT_HIGHLIGHT_COLOR;
-        const type = item.decoration?.style?.type ?? DecorationStyleType.Highlight;
+        // Template items are always routed to the DOM overlay; only BuiltinDecorationStyle reaches here.
+        const style = item.decoration.style as BuiltinDecorationStyle;
+        const tint = style.tint ?? DEFAULT_HIGHLIGHT_COLOR;
+        const type = style.type ?? DecorationStyleType.Highlight;
 
         // TODO add caching layer ("vdom") to this so we aren't completely replacing the CSS every time
         let css: string;
@@ -362,47 +401,66 @@ class DecorationGroup {
 
         const boundingRect = item.range.getBoundingClientRect();
 
-        const type = item.decoration?.style?.type ?? DecorationStyleType.Highlight;
-        const tint = item.decoration?.style?.tint ?? DEFAULT_HIGHLIGHT_COLOR;
+        const decoStyle = item.decoration.style;
+        let elementTemplate: Element;
 
-        // TextColor requires CSS Highlight API; DOM overlay has no equivalent.
-        if (type === DecorationStyleType.TextColor) {
-            item.container = itemContainer;
-            item.clickableElements = [];
-            return;
-        }
-
-        const isDarkMode = this.getCurrentDarkMode();
-
-        const styleAttr = (() => {
-            switch (type) {
-                case DecorationStyleType.Underline:
-                    return [
-                        `border-bottom: 0.1em solid ${tint} !important`,
-                        "background-color: transparent !important",
-                        "box-sizing: border-box !important",
-                    ].join("; ");
-                case DecorationStyleType.Outline:
-                    return [
-                        `outline: 2px solid ${tint} !important`,
-                        "outline-offset: 1px !important",
-                        "background-color: transparent !important",
-                        "box-sizing: border-box !important",
-                    ].join("; ");
-                case DecorationStyleType.Highlight:
-                default:
-                    return [
-                        `background-color: ${tint} !important`,
-                        `mix-blend-mode: ${isDarkMode ? "exclusion" : "multiply"} !important`,
-                        "opacity: 1 !important",
-                        "box-sizing: border-box !important",
-                    ].join("; ");
+        if (decoStyle.type === DecorationStyleType.Template) {
+            // HTMLDecorationTemplate — fully custom HTML provided by the caller.
+            if (decoStyle.stylesheet) {
+                this.injectCustomStylesheet(decoStyle.stylesheet);
             }
-        })();
+            const customEl = sanitizeHTML(this.wnd, decoStyle.element) as HTMLElement | null;
+            if (!customEl) {
+                item.container = itemContainer;
+                item.clickableElements = [];
+                return;
+            }
+            customEl.style.setProperty("pointer-events", "none");
+            elementTemplate = customEl;
+        } else {
+            // BuiltinDecorationStyle path.
+            const style = decoStyle as BuiltinDecorationStyle;
+            const type = style.type ?? DecorationStyleType.Highlight;
+            const tint = style.tint ?? DEFAULT_HIGHLIGHT_COLOR;
 
-        let template = this.wnd.document.createElement("template");
-        template.innerHTML = `<div data-readium="true" class="readium-${type}" style="${styleAttr}"></div>`.trim();
-        const elementTemplate = template.content.firstElementChild!;
+            // TextColor requires CSS Highlight API; DOM overlay has no equivalent.
+            if (type === DecorationStyleType.TextColor) {
+                item.container = itemContainer;
+                item.clickableElements = [];
+                return;
+            }
+
+            const isDarkMode = this.getCurrentDarkMode();
+            const styleAttr = (() => {
+                switch (type) {
+                    case DecorationStyleType.Underline:
+                        return [
+                            `border-bottom: 0.1em solid ${tint} !important`,
+                            "background-color: transparent !important",
+                            "box-sizing: border-box !important",
+                        ].join("; ");
+                    case DecorationStyleType.Outline:
+                        return [
+                            `outline: 2px solid ${tint} !important`,
+                            "outline-offset: 1px !important",
+                            "background-color: transparent !important",
+                            "box-sizing: border-box !important",
+                        ].join("; ");
+                    case DecorationStyleType.Highlight:
+                    default:
+                        return [
+                            `background-color: ${tint} !important`,
+                            `mix-blend-mode: ${isDarkMode ? "exclusion" : "multiply"} !important`,
+                            "opacity: 1 !important",
+                            "box-sizing: border-box !important",
+                        ].join("; ");
+                }
+            })();
+
+            const template = this.wnd.document.createElement("template");
+            template.innerHTML = `<div data-readium="true" class="readium-${type}" style="${styleAttr}"></div>`.trim();
+            elementTemplate = template.content.firstElementChild!;
+        }
 
         if(item.decoration?.style?.layout === DecorationLayout.Bounds) {
             const bounds = elementTemplate.cloneNode(true) as HTMLDivElement;
@@ -500,6 +558,18 @@ class DecorationGroup {
             isDarkColor(this.wnd.getComputedStyle(this.wnd.document.documentElement).getPropertyValue("background-color"));
     }
 
+    private injectCustomStylesheet(css: string) {
+        const id = `${this.id}-custom-style`;
+        let el = this.wnd.document.getElementById(id) as HTMLStyleElement | null;
+        if (!el) {
+            el = this.wnd.document.createElement("style");
+            el.id = id;
+            el.dataset.readium = "true";
+            this.wnd.document.head.appendChild(el);
+        }
+        el.innerHTML = css;
+    }
+
     /**
      * Removes the group container.
      */
@@ -507,6 +577,7 @@ class DecorationGroup {
         if (this.experimentalHighlights) {
             ((this.wnd as any).CSS.highlights as Map<string, unknown>).delete(this.id);
         }
+        this.wnd.document.getElementById(`${this.id}-custom-style`)?.remove();
         if (this.container) {
             this.container.remove();
             this.container = undefined;
