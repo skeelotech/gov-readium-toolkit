@@ -23,9 +23,16 @@ export enum DecorationLayout {
     Bounds = "bounds", // A single HTML element covering the smallest region containing all CSS border boxes.
 }
 
-// TODO improve
+export enum DecorationStyleType {
+    Highlight = "highlight", // Background color overlay.
+    Underline = "underline", // Underline drawn beneath the text.
+    Outline   = "outline",   // Border drawn around the text boxes.
+    TextColor = "textColor", // Changes the text color directly.
+}
+
 export interface DecorationStyle {
-    tint: string; // CSS color string
+    type?: DecorationStyleType; // Defaults to Highlight when omitted.
+    tint?: string; // CSS color string; optional, falls back to yellow.
     layout: DecorationLayout; // Determines the number of created HTML elements and their position relative to the matching DOM range.
     width: DecorationWidth; // Indicates how the width of each created HTML element expands in the viewport.
     isActive?: boolean; // Whether user activation (click/tap) events fire for this decoration.
@@ -126,6 +133,10 @@ class DecorationGroup {
                 // No text to be highlighted
                 this.notTextFlag?.set(id, true);
             }
+        }
+        if (this.experimentalHighlights && decoration.style?.type === DecorationStyleType.Outline) {
+            // CSS Highlight API does not support `outline`; force DOM overlay path.
+            this.notTextFlag?.set(id, true);
         }
 
         const item = {
@@ -252,16 +263,35 @@ class DecorationGroup {
         const [stylesheet, highlighter]: [HTMLStyleElement, any] = this.requireContainer(true) as [HTMLStyleElement, unknown];
         highlighter.add(item.range);
 
-        const backgroundColor = getProperty(this.wnd, "--USER__backgroundColor") ||
-                              this.wnd.getComputedStyle(this.wnd.document.documentElement).getPropertyValue("background-color");
         const tint = item.decoration?.style?.tint ?? DEFAULT_HIGHLIGHT_COLOR;
+        const type = item.decoration?.style?.type ?? DecorationStyleType.Highlight;
 
         // TODO add caching layer ("vdom") to this so we aren't completely replacing the CSS every time
-        stylesheet.innerHTML = `
-        ::highlight(${this.id}) {
-            color: ${getContrastingTextColor(tint, backgroundColor)};
-            background-color: ${tint};
-        }`;
+        let css: string;
+        switch (type) {
+            case DecorationStyleType.Underline:
+                css = `::highlight(${this.id}) {
+                    text-decoration: underline;
+                    text-decoration-color: ${tint};
+                    text-decoration-thickness: 0.1em;
+                }`;
+                break;
+            case DecorationStyleType.TextColor:
+                css = `::highlight(${this.id}) {
+                    color: ${tint};
+                }`;
+                break;
+            case DecorationStyleType.Highlight:
+            default: {
+                const backgroundColor = getProperty(this.wnd, "--USER__backgroundColor") ||
+                    this.wnd.getComputedStyle(this.wnd.document.documentElement).getPropertyValue("background-color");
+                css = `::highlight(${this.id}) {
+                    color: ${getContrastingTextColor(tint, backgroundColor)};
+                    background-color: ${tint};
+                }`;
+            }
+        }
+        stylesheet.innerHTML = css;
     }
 
     /**
@@ -332,26 +362,46 @@ class DecorationGroup {
 
         const boundingRect = item.range.getBoundingClientRect();
 
-        let template = this.wnd.document.createElement("template");
-        // template.innerHTML = item.decoration.element.trim();
-        // TODO more styles logic
+        const type = item.decoration?.style?.type ?? DecorationStyleType.Highlight;
+        const tint = item.decoration?.style?.tint ?? DEFAULT_HIGHLIGHT_COLOR;
+
+        // TextColor requires CSS Highlight API; DOM overlay has no equivalent.
+        if (type === DecorationStyleType.TextColor) {
+            item.container = itemContainer;
+            item.clickableElements = [];
+            return;
+        }
 
         const isDarkMode = this.getCurrentDarkMode();
 
-        template.innerHTML = `
-        <div
-            data-readium="true"
-            class="readium-highlight"
-            style="${[
-                `background-color: ${item.decoration?.style?.tint ?? DEFAULT_HIGHLIGHT_COLOR} !important`,
-                //"opacity: 0.3 !important",
-                `mix-blend-mode: ${isDarkMode ? "exclusion" : "multiply"} !important`,
-                "opacity: 1 !important",
-                "box-sizing: border-box !important"
-            ].join("; ")}"
-        >
-        </div>
-        `.trim();
+        const styleAttr = (() => {
+            switch (type) {
+                case DecorationStyleType.Underline:
+                    return [
+                        `border-bottom: 0.1em solid ${tint} !important`,
+                        "background-color: transparent !important",
+                        "box-sizing: border-box !important",
+                    ].join("; ");
+                case DecorationStyleType.Outline:
+                    return [
+                        `outline: 2px solid ${tint} !important`,
+                        "outline-offset: 1px !important",
+                        "background-color: transparent !important",
+                        "box-sizing: border-box !important",
+                    ].join("; ");
+                case DecorationStyleType.Highlight:
+                default:
+                    return [
+                        `background-color: ${tint} !important`,
+                        `mix-blend-mode: ${isDarkMode ? "exclusion" : "multiply"} !important`,
+                        "opacity: 1 !important",
+                        "box-sizing: border-box !important",
+                    ].join("; ");
+            }
+        })();
+
+        let template = this.wnd.document.createElement("template");
+        template.innerHTML = `<div data-readium="true" class="readium-${type}" style="${styleAttr}"></div>`.trim();
         const elementTemplate = template.content.firstElementChild!;
 
         if(item.decoration?.style?.layout === DecorationLayout.Bounds) {
