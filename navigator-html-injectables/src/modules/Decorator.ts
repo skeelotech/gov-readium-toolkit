@@ -6,11 +6,21 @@ import { ModuleName } from "./ModuleLibrary.ts";
 import { Rect, getClientRectsNoOverlap, rectContainsPoint } from "../helpers/rect.ts";
 import { getProperty } from "../helpers/css.ts";
 import { ReadiumWindow } from "../helpers/dom.ts";
-import { isDarkColor, getContrastingTextColor } from "../helpers/color.ts";
+import { isDarkColor, getContrastingTextColor, adjustColorForContrast } from "../helpers/color.ts";
 import { sML } from "../helpers/sML.ts";
 import { sanitizeHTML } from "../helpers/sanitize.ts";
 
-const DEFAULT_HIGHLIGHT_COLOR = "#FFFF00"; // Yellow in HEX
+function defaultTint(type: DecorationStyleType): string {
+    switch (type) {
+        case DecorationStyleType.Mask:
+        case DecorationStyleType.MaskBlock:
+            return "rgba(255, 255, 255, 0.5)";
+        case DecorationStyleType.Highlight:
+            return "#FFFF00";
+        default:
+            return "#FF0000";
+    }
+}
 
 export enum DecorationWidth {
     Wrap = "wrap", // Smallest width fitting the CSS border box.
@@ -29,6 +39,8 @@ export enum DecorationStyleType {
     Underline = "underline", // Underline drawn beneath the text.
     Outline   = "outline",   // Border drawn around the text boxes.
     TextColor = "textColor", // Changes the text color directly.
+    Mask      = "mask",      // Dims everything outside the selection rects.
+    MaskBlock = "maskBlock", // Dims everything outside the nearest block-level ancestor.
     Template  = "template",  // Custom HTML template (HTMLDecorationTemplate).
 }
 
@@ -97,6 +109,9 @@ class DecorationGroup {
     public readonly experimentalHighlights: boolean = false;
     private readonly notTextFlag: Map<string, boolean> | undefined;
     private readonly activationHandler: (e: PointerEvent) => void;
+    private maskSvg: SVGSVGElement | undefined = undefined;
+    private shadowHost: HTMLDivElement | undefined = undefined;
+    private shadowRoot: ShadowRoot | undefined = undefined;
 
     /**
      * Creates a DecorationGroup object
@@ -163,6 +178,11 @@ class DecorationGroup {
                 // Custom element templates render as DOM nodes, not CSS ranges.
                 this.notTextFlag?.set(id, true);
             }
+            if (decoration.style?.type === DecorationStyleType.Mask ||
+                decoration.style?.type === DecorationStyleType.MaskBlock) {
+                // Mask overlays are SVG/DOM constructs; CSS Highlight API cannot represent them.
+                this.notTextFlag?.set(id, true);
+            }
         }
 
         const item = {
@@ -185,6 +205,9 @@ class DecorationGroup {
         if (index < 0) return;
 
         const item = this.items[index];
+        const wasMask = item.decoration.style?.type === DecorationStyleType.Mask || 
+                        item.decoration.style?.type === DecorationStyleType.MaskBlock;
+        
         this.items.splice(index, 1);
         item.clickableElements = undefined;
         if (item.container) {
@@ -197,6 +220,11 @@ class DecorationGroup {
             mm?.delete(item.range);
         }
         this.notTextFlag?.delete(item.id);
+        
+        // Update shared mask if we removed a mask decoration
+        if (wasMask) {
+            this.updateSharedMask();
+        }
     }
 
     /**
@@ -215,6 +243,16 @@ class DecorationGroup {
         this.clearContainer();
         this.items.length = 0;
         this.notTextFlag?.clear();
+        // Clear shared mask
+        if (this.maskSvg) {
+            this.maskSvg.remove();
+            this.maskSvg = undefined;
+        }
+        if (this.shadowHost) {
+            this.shadowHost.remove();
+            this.shadowHost = undefined;
+            this.shadowRoot = undefined;
+        }
     }
 
     /**
@@ -292,6 +330,8 @@ class DecorationGroup {
             this.currentRender = this.wnd.requestAnimationFrame(() => {
                 this.items.forEach(i => this.layout(i));
                 this.renderLayout(this.items);
+                // Update shared mask after layout
+                this.updateSharedMask();
             });
         });
     }
@@ -302,17 +342,26 @@ class DecorationGroup {
 
         // Template items are always routed to the DOM overlay; only BuiltinDecorationStyle reaches here.
         const style = item.decoration.style as BuiltinDecorationStyle;
-        const tint = style.tint ?? DEFAULT_HIGHLIGHT_COLOR;
         const type = style.type ?? DecorationStyleType.Highlight;
+        const tint = style.tint ?? defaultTint(type);
 
         // TODO add caching layer ("vdom") to this so we aren't completely replacing the CSS every time
+        const backgroundColor = this.getBackgroundColor();
         let css: string;
         switch (type) {
             case DecorationStyleType.Underline:
+                const adjustedUnderlineTint = adjustColorForContrast(tint, backgroundColor);
                 css = `::highlight(${this.id}) {
                     text-decoration: underline;
-                    text-decoration-color: ${tint};
+                    text-decoration-color: ${adjustedUnderlineTint};
                     text-decoration-thickness: 0.1em;
+                }`;
+                break;
+            case DecorationStyleType.Outline:
+                const adjustedOutlineTint = adjustColorForContrast(tint, backgroundColor);
+                css = `::highlight(${this.id}) {
+                    outline: 2px solid ${adjustedOutlineTint};
+                    outline-offset: 1px;
                 }`;
                 break;
             case DecorationStyleType.TextColor:
@@ -322,10 +371,8 @@ class DecorationGroup {
                 break;
             case DecorationStyleType.Highlight:
             default: {
-                const backgroundColor = getProperty(this.wnd, "--USER__backgroundColor") ||
-                    this.wnd.getComputedStyle(this.wnd.document.documentElement).getPropertyValue("background-color");
                 css = `::highlight(${this.id}) {
-                    color: ${getContrastingTextColor(tint, backgroundColor)};
+                    color: ${getContrastingTextColor(tint, this.getBackgroundColor())};
                     background-color: ${tint};
                 }`;
             }
@@ -421,7 +468,7 @@ class DecorationGroup {
             // BuiltinDecorationStyle path.
             const style = decoStyle as BuiltinDecorationStyle;
             const type = style.type ?? DecorationStyleType.Highlight;
-            const tint = style.tint ?? DEFAULT_HIGHLIGHT_COLOR;
+            const tint = style.tint ?? defaultTint(type);
 
             // TextColor requires CSS Highlight API; DOM overlay has no equivalent.
             if (type === DecorationStyleType.TextColor) {
@@ -430,18 +477,30 @@ class DecorationGroup {
                 return;
             }
 
+            // Mask/MaskBlock: dim overlay covering the full document with SVG clip-path holes.
+            if (type === DecorationStyleType.Mask || type === DecorationStyleType.MaskBlock) {
+                // Mask decorations use a shared overlay - just mark the item and update the shared mask
+                item.container = itemContainer;
+                item.clickableElements = [];
+                this.updateSharedMask();
+                return;
+            }
+
             const isDarkMode = this.getCurrentDarkMode();
+            const backgroundColor = this.getBackgroundColor();
             const styleAttr = (() => {
                 switch (type) {
                     case DecorationStyleType.Underline:
+                        const adjustedUnderlineTint = adjustColorForContrast(tint, backgroundColor);
                         return [
-                            `border-bottom: 0.1em solid ${tint} !important`,
+                            `border-bottom: 0.1em solid ${adjustedUnderlineTint} !important`,
                             "background-color: transparent !important",
                             "box-sizing: border-box !important",
                         ].join("; ");
                     case DecorationStyleType.Outline:
+                        const adjustedOutlineTint = adjustColorForContrast(tint, backgroundColor);
                         return [
-                            `outline: 2px solid ${tint} !important`,
+                            `outline: 2px solid ${adjustedOutlineTint} !important`,
                             "outline-offset: 1px !important",
                             "background-color: transparent !important",
                             "box-sizing: border-box !important",
@@ -541,21 +600,201 @@ class DecorationGroup {
         }
 
         if (!this.container) {
+            // Create shared shadow host if it doesn't exist
+            if (!this.shadowRoot) {
+                this.shadowHost = this.wnd.document.createElement("div");
+                this.shadowHost.style.cssText = "position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none";
+                this.wnd.document.body.appendChild(this.shadowHost);
+                this.shadowRoot = this.shadowHost.attachShadow({ mode: "open" });
+            }
+            
+            // Create container in shared shadow root
             this.container = this.wnd.document.createElement("div");
             this.container.setAttribute("id", this.id);
             this.container.dataset.group = this.name;
             this.container.dataset.readium = "true";
             this.container.style.setProperty("pointer-events", "none");
             this.container.style.display = "contents";
-            this.wnd.document.body.append(this.container);
+            this.shadowRoot.appendChild(this.container);
         }
         return this.container;
     }
 
     getCurrentDarkMode(): boolean {
         return getProperty(this.wnd, "--USER__appearance") === "readium-night-on" ||
-            isDarkColor(getProperty(this.wnd, "--USER__backgroundColor")) ||
-            isDarkColor(this.wnd.getComputedStyle(this.wnd.document.documentElement).getPropertyValue("background-color"));
+            isDarkColor(this.getBackgroundColor());
+    }
+
+    getBackgroundColor(): string {
+        return getProperty(this.wnd, "--USER__backgroundColor") ||
+            this.wnd.getComputedStyle(this.wnd.document.documentElement).getPropertyValue("background-color");
+    }
+
+    private updateSharedMask() {
+        const maskItems = this.items.filter(item => 
+            item.decoration.style?.type === DecorationStyleType.Mask || 
+            item.decoration.style?.type === DecorationStyleType.MaskBlock
+        );
+
+        if (maskItems.length === 0) {
+            // Remove shared mask if no mask decorations exist
+            if (this.maskSvg) {
+                this.maskSvg.remove();
+                this.maskSvg = undefined;
+            }
+            if (this.shadowRoot) {
+                this.shadowRoot.innerHTML = '';
+            }
+            return;
+        }
+
+        // Get scroll offset for coordinate calculations
+        const scrollingElement = this.wnd.document.scrollingElement!;
+        const xOffset = scrollingElement.scrollLeft;
+        const yOffset = scrollingElement.scrollTop;
+
+        let iz = 1;
+        if (sML.UA.Blink) {
+            const rootZoom = parseFloat(this.wnd.getComputedStyle(this.wnd.document.documentElement).zoom);
+            const bodyZoom = parseFloat(this.wnd.getComputedStyle(this.wnd.document.body).zoom);
+            const effectiveZoom = (rootZoom || 1) * (bodyZoom || 1);
+            if (effectiveZoom) iz = 1 / effectiveZoom;
+        }
+
+        // Collect all hole rects from mask decorations
+        const docEl = this.wnd.document.documentElement;
+        const docW = docEl.scrollWidth;
+        const docH = docEl.scrollHeight;
+        const viewportWidth = this.wnd.innerWidth;
+        const columnCount = parseInt(
+            this.wnd.getComputedStyle(docEl).getPropertyValue("column-count")
+        );
+        const pageWidth = viewportWidth / (columnCount || 1);
+        const allHoleRects: DOMRect[] = [];
+        for (const item of maskItems) {
+            const style       = item.decoration.style as BuiltinDecorationStyle;
+            const isMaskBlock = style.type === DecorationStyleType.MaskBlock;
+            const layout      = style.layout ?? DecorationLayout.Boxes;
+            const width       = style.width  ?? DecorationWidth.Wrap;
+
+            const boundingRect = item.range.getBoundingClientRect();
+
+            const baseRects: DOMRect[] = layout === DecorationLayout.Bounds
+                ? [boundingRect]
+                : Array.from(item.range.getClientRects());
+
+            const itemHoles: DOMRect[] = [];
+            for (const rect of baseRects) {
+                let hole: DOMRect;
+                if (width === DecorationWidth.Viewport) {
+                    const left = Math.floor(rect.left / viewportWidth) * viewportWidth;
+                    hole = new DOMRect(left, rect.top, viewportWidth, rect.height);
+                } else if (width === DecorationWidth.Page) {
+                    const left = Math.floor(rect.left / pageWidth) * pageWidth;
+                    hole = new DOMRect(left, rect.top, pageWidth, rect.height);
+                } else if (width === DecorationWidth.Bounds) {
+                    hole = new DOMRect(boundingRect.left, rect.top, boundingRect.width, rect.height);
+                } else if (isMaskBlock) {
+                    // wrap + MaskBlock: snap each line to its column's full width
+                    const left = Math.floor(rect.left / pageWidth) * pageWidth;
+                    hole = new DOMRect(left, rect.top, pageWidth, rect.height);
+                } else {
+                    hole = rect;
+                }
+                itemHoles.push(hole);
+            }
+
+            if (isMaskBlock) {
+                // Merge rects sharing the same column left into one continuous block,
+                // closing line-spacing gaps between individual line rects.
+                const colMap = new Map<number, { top: number; bottom: number; width: number }>();
+                for (const h of itemHoles) {
+                    const existing = colMap.get(h.left);
+                    if (existing) {
+                        existing.top    = Math.min(existing.top, h.top);
+                        existing.bottom = Math.max(existing.bottom, h.bottom);
+                    } else {
+                        colMap.set(h.left, { top: h.top, bottom: h.bottom, width: h.width });
+                    }
+                }
+                for (const [left, { top, bottom, width: w }] of colMap) {
+                    allHoleRects.push(new DOMRect(left, top, w, bottom - top));
+                }
+            } else {
+                allHoleRects.push(...itemHoles);
+            }
+        }
+
+        // Build SVG path with all holes
+        const pathData = [
+            `M0 0 H${docW} V${docH} H0 Z`,
+            ...allHoleRects.map(r => {
+                const l  = (r.left  + xOffset) * iz;
+                const t  = (r.top   + yOffset) * iz;
+                const ri = (r.right + xOffset) * iz;
+                const b  = (r.bottom + yOffset) * iz;
+                return `M${l} ${t} H${ri} V${b} H${l} Z`;
+            }),
+        ].join(" ");
+
+        const svgNS = "http://www.w3.org/2000/svg";
+
+        // Create or update SVG
+        if (!this.maskSvg) {
+            // Ensure shared shadow host exists
+            if (!this.shadowRoot) {
+                this.shadowHost = this.wnd.document.createElement("div");
+                this.shadowHost.style.cssText = "position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none";
+                this.wnd.document.body.appendChild(this.shadowHost);
+                this.shadowRoot = this.shadowHost.attachShadow({ mode: "open" });
+            }
+            
+            // Create SVG in shared shadow root
+            this.maskSvg = this.wnd.document.createElementNS(svgNS, "svg") as SVGSVGElement;
+            this.maskSvg.style.cssText = `position:absolute;top:0;left:0;width:${docW}px;height:${docH}px;pointer-events:none;z-index:9999`;
+            this.maskSvg.dataset.readium = "true";
+            const defs = this.wnd.document.createElementNS(svgNS, "defs");
+            const clipPath = this.wnd.document.createElementNS(svgNS, "clipPath") as SVGClipPathElement;
+            const clipId = `${this.id}-mask-clip`;
+            clipPath.setAttribute("id", clipId);
+            clipPath.setAttribute("clipPathUnits", "userSpaceOnUse");
+            const svgPath = this.wnd.document.createElementNS(svgNS, "path") as SVGPathElement;
+            svgPath.setAttribute("clip-rule", "evenodd");
+            clipPath.appendChild(svgPath);
+            defs.appendChild(clipPath);
+            this.maskSvg.appendChild(defs);
+            
+            // Add SVG rect for the overlay (bypasses ReadiumCSS)
+            const maskRect = this.wnd.document.createElementNS(svgNS, "rect") as SVGRectElement;
+            maskRect.setAttribute("id", `${this.id}-mask-rect`);
+            maskRect.setAttribute("clip-path", `url(#${clipId})`);
+            maskRect.style.pointerEvents = "none";
+            this.maskSvg.appendChild(maskRect);
+            
+            this.shadowRoot!.appendChild(this.maskSvg);
+        }
+
+        // Update SVG dimensions to cover full document
+        this.maskSvg.style.width = `${docW}px`;
+        this.maskSvg.style.height = `${docH}px`;
+
+        // Update the path data
+        const svgPath = this.maskSvg.querySelector("path") as SVGPathElement;
+        if (svgPath) {
+            svgPath.setAttribute("d", pathData);
+        }
+
+        // Update the mask rect
+        const maskRect = this.maskSvg.querySelector("rect") as SVGRectElement;
+        if (maskRect) {
+            const maskTint = this.getBackgroundColor() || "rgba(255, 255, 255, 0.5)";
+            maskRect.setAttribute("x", "0");
+            maskRect.setAttribute("y", "0");
+            maskRect.setAttribute("width", String(docW));
+            maskRect.setAttribute("height", String(docH));
+            maskRect.setAttribute("fill", maskTint);
+            maskRect.setAttribute("fill-opacity", "0.5");
+        }
     }
 
     private injectCustomStylesheet(css: string) {
