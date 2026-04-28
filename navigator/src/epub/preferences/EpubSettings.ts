@@ -3,7 +3,7 @@ import { ExperimentKey, TextAlignment } from "../../preferences/Types.ts";
 import { EpubDefaults } from "./EpubDefaults.ts";
 import { EpubPreferences } from "./EpubPreferences.ts";
 
-import { sMLWithRequest } from "../../helpers/index.ts";
+import { sMLWithRequest } from "../../../../navigator-html-injectables/src/helpers/sML.ts";
 
 export interface IEpubSettings {
   backgroundColor?: string | null,

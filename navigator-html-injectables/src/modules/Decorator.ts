@@ -7,6 +7,7 @@ import { Rect, getClientRectsNoOverlap, rectContainsPoint } from "../helpers/rec
 import { getProperty } from "../helpers/css.ts";
 import { ReadiumWindow } from "../helpers/dom.ts";
 import { isDarkColor, getContrastingTextColor } from "../helpers/color.ts";
+import { sML } from "../helpers/sML.ts";
 
 const DEFAULT_HIGHLIGHT_COLOR = "#FFFF00"; // Yellow in HEX
 
@@ -235,8 +236,16 @@ class DecorationGroup {
     requestLayout() {
         this.wnd.cancelAnimationFrame(this.currentRender);
         this.clearContainer();
-        this.items.forEach(i => this.layout(i));
-        this.renderLayout(this.items);
+        // Wait for fonts to finish loading before reading geometry, then use a
+        // rAF to ensure the browser has finished reflowing with the new metrics.
+        // Without this, font-family / zoom changes cause positions to be read
+        // against stale or fallback-font layout.
+        this.wnd.document.fonts.ready.then(() => {
+            this.currentRender = this.wnd.requestAnimationFrame(() => {
+                this.items.forEach(i => this.layout(i));
+                this.renderLayout(this.items);
+            });
+        });
     }
 
     private experimentalLayout(item: DecorationItem) {
@@ -283,33 +292,41 @@ class DecorationGroup {
         const xOffset = scrollingElement.scrollLeft;
         const yOffset = scrollingElement.scrollTop;
 
+        let iz = 1;
+        if (sML.UA.Blink) {
+            const rootZoom = parseFloat(this.wnd.getComputedStyle(this.wnd.document.documentElement).zoom);
+            const bodyZoom = parseFloat(this.wnd.getComputedStyle(this.wnd.document.body).zoom);
+            const effectiveZoom = (rootZoom || 1) * (bodyZoom || 1);
+            if (effectiveZoom) iz = 1 / effectiveZoom;
+        }
+
         const positionElement = (element: HTMLElement, rect: Rect, boundingRect: DOMRect) => {
             element.style.position = "absolute";
 
             // TODO change to switch
             if (item.decoration?.style?.width === DecorationWidth.Viewport) {
-                element.style.width = `${viewportWidth}px`;
-                element.style.height = `${rect.height}px`;
+                element.style.width = `${viewportWidth * iz}px`;
+                element.style.height = `${rect.height * iz}px`;
                 let left = Math.floor(rect.left / viewportWidth) * viewportWidth;
-                element.style.left = `${left + xOffset}px`;
-                element.style.top = `${rect.top + yOffset}px`;
+                element.style.left = `${(left + xOffset) * iz}px`;
+                element.style.top = `${(rect.top + yOffset) * iz}px`;
             } else if (item.decoration?.style?.width === DecorationWidth.Bounds) {
-                element.style.width = `${boundingRect.width}px`;
-                element.style.height = `${rect.height}px`;
-                element.style.left = `${boundingRect.left + xOffset}px`;
-                element.style.top = `${rect.top + yOffset}px`;
+                element.style.width = `${boundingRect.width * iz}px`;
+                element.style.height = `${rect.height * iz}px`;
+                element.style.left = `${(boundingRect.left + xOffset) * iz}px`;
+                element.style.top = `${(rect.top + yOffset) * iz}px`;
             } else if (item.decoration?.style?.width === DecorationWidth.Page) {
-                element.style.width = `${pageWidth}px`;
-                element.style.height = `${rect.height}px`;
+                element.style.width = `${pageWidth * iz}px`;
+                element.style.height = `${rect.height * iz}px`;
                 let left = Math.floor(rect.left / pageWidth) * pageWidth;
-                element.style.left = `${left + xOffset}px`;
-                element.style.top = `${rect.top + yOffset}px`;
+                element.style.left = `${(left + xOffset) * iz}px`;
+                element.style.top = `${(rect.top + yOffset) * iz}px`;
             } else {
                 // Fall back to "wrap"
-                element.style.width = `${rect.width}px`;
-                element.style.height = `${rect.height}px`;
-                element.style.left = `${rect.left + xOffset}px`;
-                element.style.top = `${rect.top + yOffset}px`;
+                element.style.width = `${rect.width * iz}px`;
+                element.style.height = `${rect.height * iz}px`;
+                element.style.left = `${(rect.left + xOffset) * iz}px`;
+                element.style.top = `${(rect.top + yOffset) * iz}px`;
             }
         }
 
@@ -450,7 +467,7 @@ class DecorationGroup {
 export class Decorator extends Module {
     static readonly moduleName: ModuleName = "decorator";
     private resizeObserver!: ResizeObserver;
-    private backgroundObserver!: MutationObserver;
+    private styleObserver!: MutationObserver;
     private wnd!: ReadiumWindow;
     /*private readonly lastSize = {
         width: 0,
@@ -470,13 +487,6 @@ export class Decorator extends Module {
         this.groups.forEach(group => {
             group.requestLayout();
         });
-    }
-
-    private extractCustomProperty(style: string | null, propertyName: string): string | null {
-        if (!style) return null;
-
-        const match = style.match(new RegExp(`${propertyName}:\\s*([^;]+)`));
-        return match ? match[1].trim() : null;
     }
 
     private handleResize() {
@@ -536,40 +546,25 @@ export class Decorator extends Module {
         });
 
         this.resizeObserver = new ResizeObserver(() => wnd.requestAnimationFrame(() => this.handleResize()));
-        this.resizeObserver.observe(wnd.document.body);
+        this.resizeObserver.observe(wnd.document.documentElement);
         wnd.addEventListener("orientationchange", this.handleResizer);
         wnd.addEventListener("resize", this.handleResizer);
 
-        // Set up MutationObserver to watch for CSS custom property changes
-        this.backgroundObserver = new MutationObserver((mutations) => {
-            const shouldUpdate = mutations.some(mutation => {
-                if (mutation.type === "attributes" && mutation.attributeName === "style") {
-                    const element = mutation.target as Element;
-                    const oldStyle = mutation.oldValue;
-                    const newStyle = element.getAttribute("style");
-
-                    // Check if the relevant CSS custom properties actually changed
-                    const oldAppearance = this.extractCustomProperty(oldStyle, "--USER__appearance");
-                    const newAppearance = this.extractCustomProperty(newStyle, "--USER__appearance");
-                    const oldBgColor = this.extractCustomProperty(oldStyle, "--USER__backgroundColor");
-                    const newBgColor = this.extractCustomProperty(newStyle, "--USER__backgroundColor");
-
-                    return oldAppearance !== newAppearance ||
-                           oldBgColor !== newBgColor;
-                }
-                return false;
-            });
-
-            if (shouldUpdate) {
-                this.updateHighlightStyles();
-            }
+        // Watch for any style change on <html> — covers appearance, background color,
+        // font size, line height, margins, and anything else that reflows text.
+        this.styleObserver = new MutationObserver((mutations) => {
+            const shouldUpdate = mutations.some(mutation =>
+                mutation.type === "attributes" &&
+                mutation.attributeName === "style" &&
+                mutation.oldValue !== (mutation.target as Element).getAttribute("style")
+            );
+            if (shouldUpdate) this.updateHighlightStyles();
         });
 
-        this.backgroundObserver.observe(wnd.document.documentElement, {
+        this.styleObserver.observe(wnd.document.documentElement, {
             attributes: true,
             attributeFilter: ["style"],
             attributeOldValue: true,
-            subtree: true
         });
 
         comms.log("Decorator Mounted");
@@ -582,7 +577,7 @@ export class Decorator extends Module {
 
         comms.unregisterAll(Decorator.moduleName);
         this.resizeObserver.disconnect();
-        this.backgroundObserver.disconnect();
+        this.styleObserver.disconnect();
         this.cleanup();
 
         comms.log("Decorator Unmounted");

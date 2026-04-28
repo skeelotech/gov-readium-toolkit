@@ -19,7 +19,7 @@ import {
   withFallback
 } from "../../preferences/guards.ts";
 
-import { sMLWithRequest } from "../../helpers/index.ts";
+import { sMLWithRequest } from "../../../../navigator-html-injectables/src/helpers/sML.ts";
 
 export interface IEpubDefaults {
   backgroundColor?: string | null,

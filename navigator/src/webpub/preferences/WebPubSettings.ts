@@ -3,7 +3,7 @@ import { ExperimentKey, TextAlignment } from "../../preferences/Types.ts";
 import { WebPubDefaults } from "./WebPubDefaults.ts";
 import { WebPubPreferences } from "./WebPubPreferences.ts";
 
-import { sMLWithRequest } from "../../helpers/index.ts";
+import { sMLWithRequest } from "../../../../navigator-html-injectables/src/helpers/sML.ts";
 
 export interface IWebPubSettings {
   fontFamily?: string | null,

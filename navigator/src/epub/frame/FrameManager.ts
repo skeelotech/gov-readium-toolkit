@@ -1,7 +1,7 @@
 import { Loader, ModuleName } from "@readium/navigator-html-injectables";
 import { FrameComms } from "./FrameComms.ts";
 import type { ReadiumWindow } from "../../../../navigator-html-injectables/types/src/helpers/dom";
-import { sML } from "../../helpers/index.ts";
+import { sML } from "../../../../navigator-html-injectables/src/helpers/sML.ts";
 import type { IContentProtectionConfig, IKeyboardPeripheralsConfig } from "../../Navigator.ts";
 
 

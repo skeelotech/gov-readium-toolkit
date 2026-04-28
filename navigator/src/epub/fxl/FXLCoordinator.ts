@@ -1,4 +1,4 @@
-import { sML } from "../../helpers/sML.ts";
+import { sML } from "../../../../navigator-html-injectables/src/helpers/sML.ts";
 
 export interface Point {
     X: number;
