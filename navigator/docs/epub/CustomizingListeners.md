@@ -122,11 +122,11 @@ interface BasicTextSelection {
     width: number;         // Width of the selection's bounding rect
     height: number;        // Height of the selection's bounding rect
     targetFrameSrc: string; // URL of the iframe where the selection occurred
-    locator?: Locator;     // Locator for the frame the selection originated from — use this to create decorations
+    locator?: Locator;     // Ready-to-use locator with href, type, and text.highlight set — pass directly to applyDecorations
 }
 ```
 
-In Fixed-Layout spread mode, `locator` is the reliable way to determine which reading order item the selection belongs to. Using `currentLocator` from the navigator instead will always point to the first page of the spread.
+The locator has `href`, `type`, and `text.highlight` pre-filled. In Fixed-Layout spread mode it is also the only reliable way to determine which reading order item the selection belongs to — `currentLocator` always points to the first page of the spread.
 
 ### contentProtection
 

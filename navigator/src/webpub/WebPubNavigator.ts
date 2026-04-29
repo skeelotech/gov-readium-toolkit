@@ -1,4 +1,4 @@
-import { Feature, Link, Locator, Publication, ReadingProgression, LocatorLocations } from "@readium/shared";
+import { Feature, Link, Locator, LocatorText, Publication, ReadingProgression, LocatorLocations } from "@readium/shared";
 import { VisualNavigator, VisualNavigatorViewport, ProgressionRange } from "../Navigator.ts";
 import { Configurable } from "../preferences/Configurable.ts";
 import { WebPubFramePoolManager } from "./WebPubFramePoolManager.ts";
@@ -276,7 +276,7 @@ export class WebPubNavigator extends VisualNavigator implements Configurable<Web
                 break;
             case "text_selected": {
                 const selection = data as BasicTextSelection;
-                selection.locator = this.currentLocation;
+                selection.locator = new Locator({ href: this.currentLocation.href, type: this.currentLocation.type, text: new LocatorText({ highlight: selection.text }) });
                 this.listeners.textSelected(selection);
                 break;
             }

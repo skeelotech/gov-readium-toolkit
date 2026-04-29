@@ -1,4 +1,4 @@
-import { Layout, Link, Locator, Profile, Publication, ReadingProgression } from "@readium/shared";
+import { Layout, Link, Locator, LocatorText, Profile, Publication, ReadingProgression } from "@readium/shared";
 import { Configurable, ConfigurableSettings, LineLengths, ProgressionRange, VisualNavigator, VisualNavigatorViewport } from "../index.ts";
 import { FramePoolManager } from "./frame/FramePoolManager.ts";
 import { FXLFramePoolManager } from "./fxl/FXLFramePoolManager.ts";
@@ -460,7 +460,7 @@ export class EpubNavigator extends VisualNavigator implements Configurable<Confi
                     const href = i >= 0 ? this.viewport.readingOrder[i] : undefined;
                     if (href) {
                         const link = this.pub.readingOrder.findWithHref(href);
-                        selection.locator = new Locator({ href, type: link!.type || "application/xhtml+xml" });
+                        selection.locator = new Locator({ href, type: link!.type || "application/xhtml+xml", text: new LocatorText({ highlight: selection.text }) });
                     }
                 }
                 this.listeners.textSelected(selection);
