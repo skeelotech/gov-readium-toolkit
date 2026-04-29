@@ -39,10 +39,14 @@ function stylesEqual(a: DecorationStyle, b: DecorationStyle): boolean {
         ba.width === bb.width;
 }
 
+function serializeLocations(loc: any): any {
+    return typeof loc?.serialize === 'function' ? loc.serialize() : loc;
+}
+
 export function decorationsEqual(a: Decoration, b: Decoration): boolean {
     return (
         a.locator.href === b.locator.href &&
-        JSON.stringify(a.locator.locations?.serialize()) === JSON.stringify(b.locator.locations?.serialize()) &&
+        JSON.stringify(serializeLocations(a.locator.locations)) === JSON.stringify(serializeLocations(b.locator.locations)) &&
         stylesEqual(a.style, b.style) &&
         JSON.stringify(a.extras ?? null) === JSON.stringify(b.extras ?? null)
     );
