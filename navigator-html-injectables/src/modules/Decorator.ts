@@ -7,6 +7,7 @@ import { Rect, getClientRectsNoOverlap, rectContainsPoint } from "../helpers/rec
 import { getProperty } from "../helpers/css.ts";
 import { ReadiumWindow } from "../helpers/dom.ts";
 import { isDarkColor, getContrastingTextColor, adjustColorForContrast } from "../helpers/color.ts";
+import { makeWritingContext } from "../helpers/document.ts";
 import { sML } from "../helpers/sML.ts";
 import { sanitizeHTML } from "../helpers/sanitize.ts";
 
@@ -397,16 +398,7 @@ class DecorationGroup {
         // itemContainer.dataset.style = item.decoration.style; // TODO style
         itemContainer.style.setProperty("pointer-events", "none");
 
-        const viewportWidth = this.wnd.innerWidth;
-        const columnCount = parseInt(
-            getComputedStyle(this.wnd.document.documentElement).getPropertyValue(
-                "column-count"
-            )
-        );
-        const pageWidth = viewportWidth / (columnCount || 1);
-        const scrollingElement = this.wnd.document.scrollingElement!;
-        const xOffset = scrollingElement.scrollLeft;
-        const yOffset = scrollingElement.scrollTop;
+        const ctx = makeWritingContext(this.wnd);
 
         let iz = 1;
         if (sML.UA.Blink) {
@@ -417,32 +409,25 @@ class DecorationGroup {
         }
 
         const positionElement = (element: HTMLElement, rect: Rect, boundingRect: DOMRect) => {
-            element.style.position = "absolute";
-
-            // TODO change to switch
-            if (item.decoration?.style?.width === DecorationWidth.Viewport) {
-                element.style.width = `${viewportWidth * iz}px`;
-                element.style.height = `${rect.height * iz}px`;
-                let left = Math.floor(rect.left / viewportWidth) * viewportWidth;
-                element.style.left = `${(left + xOffset) * iz}px`;
-                element.style.top = `${(rect.top + yOffset) * iz}px`;
-            } else if (item.decoration?.style?.width === DecorationWidth.Bounds) {
-                element.style.width = `${boundingRect.width * iz}px`;
-                element.style.height = `${rect.height * iz}px`;
-                element.style.left = `${(boundingRect.left + xOffset) * iz}px`;
-                element.style.top = `${(rect.top + yOffset) * iz}px`;
-            } else if (item.decoration?.style?.width === DecorationWidth.Page) {
-                element.style.width = `${pageWidth * iz}px`;
-                element.style.height = `${rect.height * iz}px`;
-                let left = Math.floor(rect.left / pageWidth) * pageWidth;
-                element.style.left = `${(left + xOffset) * iz}px`;
-                element.style.top = `${(rect.top + yOffset) * iz}px`;
-            } else {
-                // Fall back to "wrap"
-                element.style.width = `${rect.width * iz}px`;
-                element.style.height = `${rect.height * iz}px`;
-                element.style.left = `${(rect.left + xOffset) * iz}px`;
-                element.style.top = `${(rect.top + yOffset) * iz}px`;
+            const w = item.decoration?.style?.width;
+            switch (w) {
+                case DecorationWidth.Viewport: {
+                    const snap = Math.floor(ctx.inlineStart(rect) / ctx.viewportInlineSize) * ctx.viewportInlineSize;
+                    ctx.applyPosition(element, snap + ctx.inlineScrollOffset, ctx.blockStart(rect) + ctx.blockScrollOffset, ctx.viewportInlineSize, ctx.blockSize(rect), iz);
+                    break;
+                }
+                case DecorationWidth.Page: {
+                    const snap = Math.floor(ctx.inlineStart(rect) / ctx.pageInlineSize) * ctx.pageInlineSize;
+                    ctx.applyPosition(element, snap + ctx.inlineScrollOffset, ctx.blockStart(rect) + ctx.blockScrollOffset, ctx.pageInlineSize, ctx.blockSize(rect), iz);
+                    break;
+                }
+                case DecorationWidth.Bounds: {
+                    ctx.applyPosition(element, ctx.inlineStart(boundingRect) + ctx.inlineScrollOffset, ctx.blockStart(rect) + ctx.blockScrollOffset, ctx.inlineSize(boundingRect), ctx.blockSize(rect), iz);
+                    break;
+                }
+                default: {
+                    ctx.applyPosition(element, ctx.inlineStart(rect) + ctx.inlineScrollOffset, ctx.blockStart(rect) + ctx.blockScrollOffset, ctx.inlineSize(rect), ctx.blockSize(rect), iz);
+                }
             }
         }
 
@@ -530,17 +515,17 @@ class DecorationGroup {
             // Fall back to "boxes" value for layout
             let clientRects = getClientRectsNoOverlap(
               item.range,
-              true // doNotMergeHorizontallyAlignedRects
+              true,              // doNotMergeHorizontallyAlignedRects
+              ctx.isVertical     // doNotMergeVerticallyAlignedRects
             );
 
             clientRects = clientRects.sort((r1, r2) => {
-              if (r1.top < r2.top) {
-                return -1;
-              } else if (r1.top > r2.top) {
-                return 1;
-              } else {
-                return 0;
+              if (ctx.isVertical) {
+                // vertical-rl: rightmost column first; vertical-lr: leftmost first
+                const factor = ctx.isVertLR ? 1 : -1;
+                return factor * (r1.left - r2.left);
               }
+              return r1.top - r2.top;
             });
 
             for (let clientRect of clientRects) {
@@ -648,10 +633,7 @@ class DecorationGroup {
             return;
         }
 
-        // Get scroll offset for coordinate calculations
-        const scrollingElement = this.wnd.document.scrollingElement!;
-        const xOffset = scrollingElement.scrollLeft;
-        const yOffset = scrollingElement.scrollTop;
+        const ctx = makeWritingContext(this.wnd);
 
         let iz = 1;
         if (sML.UA.Blink) {
@@ -665,11 +647,6 @@ class DecorationGroup {
         const docEl = this.wnd.document.documentElement;
         const docW = docEl.scrollWidth;
         const docH = docEl.scrollHeight;
-        const viewportWidth = this.wnd.innerWidth;
-        const columnCount = parseInt(
-            this.wnd.getComputedStyle(docEl).getPropertyValue("column-count")
-        );
-        const pageWidth = viewportWidth / (columnCount || 1);
         const allHoleRects: DOMRect[] = [];
         for (const item of maskItems) {
             const style       = item.decoration.style as BuiltinDecorationStyle;
@@ -686,53 +663,66 @@ class DecorationGroup {
             const itemHoles: DOMRect[] = [];
             for (const rect of baseRects) {
                 let hole: DOMRect;
-                if (width === DecorationWidth.Viewport) {
-                    const left = Math.floor(rect.left / viewportWidth) * viewportWidth;
-                    hole = new DOMRect(left, rect.top, viewportWidth, rect.height);
-                } else if (width === DecorationWidth.Page) {
-                    const left = Math.floor(rect.left / pageWidth) * pageWidth;
-                    hole = new DOMRect(left, rect.top, pageWidth, rect.height);
-                } else if (width === DecorationWidth.Bounds) {
-                    hole = new DOMRect(boundingRect.left, rect.top, boundingRect.width, rect.height);
-                } else if (isMaskBlock) {
-                    // wrap + MaskBlock: snap each line to its column's full width
-                    const left = Math.floor(rect.left / pageWidth) * pageWidth;
-                    hole = new DOMRect(left, rect.top, pageWidth, rect.height);
-                } else {
-                    hole = rect;
+                switch (width) {
+                    case DecorationWidth.Viewport: {
+                        const snap = Math.floor(ctx.inlineStart(rect) / ctx.viewportInlineSize) * ctx.viewportInlineSize;
+                        hole = ctx.toRect(snap, ctx.blockStart(rect), ctx.viewportInlineSize, ctx.blockSize(rect));
+                        break;
+                    }
+                    case DecorationWidth.Page: {
+                        const snap = Math.floor(ctx.inlineStart(rect) / ctx.pageInlineSize) * ctx.pageInlineSize;
+                        hole = ctx.toRect(snap, ctx.blockStart(rect), ctx.pageInlineSize, ctx.blockSize(rect));
+                        break;
+                    }
+                    case DecorationWidth.Bounds: {
+                        hole = ctx.toRect(ctx.inlineStart(boundingRect), ctx.blockStart(rect), ctx.inlineSize(boundingRect), ctx.blockSize(rect));
+                        break;
+                    }
+                    default: {
+                        if (isMaskBlock) {
+                            // Snap each line/column to the full page extent in the inline direction.
+                            const snap = Math.floor(ctx.inlineStart(rect) / ctx.pageInlineSize) * ctx.pageInlineSize;
+                            hole = ctx.toRect(snap, ctx.blockStart(rect), ctx.pageInlineSize, ctx.blockSize(rect));
+                        } else {
+                            hole = rect;
+                        }
+                    }
                 }
                 itemHoles.push(hole);
             }
 
             if (isMaskBlock) {
-                // Merge rects sharing the same column left into one continuous block,
-                // closing line-spacing gaps between individual line rects.
-                const colMap = new Map<number, { top: number; bottom: number; width: number }>();
+                // Merge holes sharing the same block-start into one continuous inline span,
+                // closing inter-line (horizontal) or inter-column (vertical) gaps.
+                const lineMap = new Map<number, { inlineStart: number; inlineEnd: number; blockSize: number }>();
                 for (const h of itemHoles) {
-                    const existing = colMap.get(h.left);
+                    const bs = ctx.blockStart(h);
+                    const is = ctx.inlineStart(h);
+                    const ie = is + ctx.inlineSize(h);
+                    const existing = lineMap.get(bs);
                     if (existing) {
-                        existing.top    = Math.min(existing.top, h.top);
-                        existing.bottom = Math.max(existing.bottom, h.bottom);
+                        existing.inlineStart = Math.min(existing.inlineStart, is);
+                        existing.inlineEnd   = Math.max(existing.inlineEnd, ie);
                     } else {
-                        colMap.set(h.left, { top: h.top, bottom: h.bottom, width: h.width });
+                        lineMap.set(bs, { inlineStart: is, inlineEnd: ie, blockSize: ctx.blockSize(h) });
                     }
                 }
-                for (const [left, { top, bottom, width: w }] of colMap) {
-                    allHoleRects.push(new DOMRect(left, top, w, bottom - top));
+                for (const [bs, { inlineStart, inlineEnd, blockSize }] of lineMap) {
+                    allHoleRects.push(ctx.toRect(inlineStart, bs, inlineEnd - inlineStart, blockSize));
                 }
             } else {
                 allHoleRects.push(...itemHoles);
             }
         }
 
-        // Build SVG path with all holes
+        // Build SVG path with all holes (physical coords — always left/top regardless of writing mode)
         const pathData = [
             `M0 0 H${docW} V${docH} H0 Z`,
             ...allHoleRects.map(r => {
-                const l  = (r.left  + xOffset) * iz;
-                const t  = (r.top   + yOffset) * iz;
-                const ri = (r.right + xOffset) * iz;
-                const b  = (r.bottom + yOffset) * iz;
+                const l  = (r.left   + ctx.xDocOffset) * iz;
+                const t  = (r.top    + ctx.yDocOffset) * iz;
+                const ri = (r.right  + ctx.xDocOffset) * iz;
+                const b  = (r.bottom + ctx.yDocOffset) * iz;
                 return `M${l} ${t} H${ri} V${b} H${l} Z`;
             }),
         ].join(" ");
