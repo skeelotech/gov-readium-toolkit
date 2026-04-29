@@ -114,6 +114,20 @@ Fires when an external link has been tapped or clicked.
 
 Fires when text has been selected inside the iframe.
 
+```ts
+interface BasicTextSelection {
+    text: string;           // The selected text
+    x: number;             // X coordinate of the selection's bounding rect
+    y: number;             // Y coordinate of the selection's bounding rect
+    width: number;         // Width of the selection's bounding rect
+    height: number;        // Height of the selection's bounding rect
+    targetFrameSrc: string; // URL of the iframe where the selection occurred
+    locator?: Locator;     // Locator for the frame the selection originated from — use this to create decorations
+}
+```
+
+In Fixed-Layout spread mode, `locator` is the reliable way to determine which reading order item the selection belongs to. Using `currentLocator` from the navigator instead will always point to the first page of the spread.
+
 ### contentProtection
 
 Fires when the content protection is triggered. See [Content Protection](./ContentProtection.md) for more information.

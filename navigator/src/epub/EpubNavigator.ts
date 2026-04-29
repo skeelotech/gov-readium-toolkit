@@ -452,9 +452,20 @@ export class EpubNavigator extends VisualNavigator implements Configurable<Confi
                 });
                 this.listeners.positionChanged(this.currentLocation);
                 break;
-            case "text_selected":
-                this.listeners.textSelected(data as BasicTextSelection);
+            case "text_selected": {
+                const selection = data as BasicTextSelection;
+                if (sourceFrame) {
+                    const frames = this._cframes.filter(f => !!f) as (FrameManager | FXLFrameManager)[];
+                    const i = frames.indexOf(sourceFrame);
+                    const href = i >= 0 ? this.viewport.readingOrder[i] : undefined;
+                    if (href) {
+                        const link = this.pub.readingOrder.findWithHref(href);
+                        selection.locator = new Locator({ href, type: link!.type || "application/xhtml+xml" });
+                    }
+                }
+                this.listeners.textSelected(selection);
                 break;
+            }
             case "decoration_activated": {
                 const handled = this._handleDecorationActivated(data as DecorationActivatedEvent);
                 if (handled) this._decorationActivationConsumed = true;

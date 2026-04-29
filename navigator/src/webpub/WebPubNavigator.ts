@@ -274,9 +274,12 @@ export class WebPubNavigator extends VisualNavigator implements Configurable<Web
                 });
                 this.listeners.positionChanged(this.currentLocation);
                 break;
-            case "text_selected":
-                this.listeners.textSelected(data as BasicTextSelection);
+            case "text_selected": {
+                const selection = data as BasicTextSelection;
+                selection.locator = this.currentLocation;
+                this.listeners.textSelected(selection);
                 break;
+            }
             case "decoration_activated": {
                 const handled = this._handleDecorationActivated(data as DecorationActivatedEvent);
                 if (handled) this._decorationActivationConsumed = true;
