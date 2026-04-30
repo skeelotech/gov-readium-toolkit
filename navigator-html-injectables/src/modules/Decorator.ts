@@ -52,6 +52,7 @@ export interface BuiltinDecorationStyle {
     layout?: DecorationLayout;
     width?: DecorationWidth;
     isActive?: boolean;
+    enforceContrast?: boolean; // When true (default), tint is adjusted for contrast against the background.
 }
 
 /**
@@ -348,10 +349,11 @@ class DecorationGroup {
 
         // TODO add caching layer ("vdom") to this so we aren't completely replacing the CSS every time
         const backgroundColor = this.getBackgroundColor();
+        const applyContrast = style.enforceContrast !== false;
         let css: string;
         switch (type) {
             case DecorationStyleType.Underline:
-                const adjustedUnderlineTint = adjustColorForContrast(tint, backgroundColor);
+                const adjustedUnderlineTint = applyContrast ? adjustColorForContrast(tint, backgroundColor) : tint;
                 css = `::highlight(${this.id}) {
                     text-decoration: underline;
                     text-decoration-color: ${adjustedUnderlineTint};
@@ -359,22 +361,25 @@ class DecorationGroup {
                 }`;
                 break;
             case DecorationStyleType.Outline:
-                const adjustedOutlineTint = adjustColorForContrast(tint, backgroundColor);
+                const adjustedOutlineTint = applyContrast ? adjustColorForContrast(tint, backgroundColor) : tint;
                 css = `::highlight(${this.id}) {
                     outline: 2px solid ${adjustedOutlineTint};
                     outline-offset: 1px;
                 }`;
                 break;
-            case DecorationStyleType.TextColor:
+            case DecorationStyleType.TextColor: {
+                const adjustedTextTint = applyContrast ? adjustColorForContrast(tint, backgroundColor) : tint;
                 css = `::highlight(${this.id}) {
-                    color: ${tint};
+                    color: ${adjustedTextTint};
                 }`;
                 break;
+            }
             case DecorationStyleType.Highlight:
             default: {
+                const adjustedHighlightTint = applyContrast ? adjustColorForContrast(tint, backgroundColor) : tint;
                 css = `::highlight(${this.id}) {
-                    color: ${getContrastingTextColor(tint, this.getBackgroundColor())};
-                    background-color: ${tint};
+                    color: ${getContrastingTextColor(adjustedHighlightTint, backgroundColor)};
+                    background-color: ${adjustedHighlightTint};
                 }`;
             }
         }
@@ -473,17 +478,18 @@ class DecorationGroup {
 
             const isDarkMode = this.getCurrentDarkMode();
             const backgroundColor = this.getBackgroundColor();
+            const applyContrast = style.enforceContrast !== false;
             const styleAttr = (() => {
                 switch (type) {
                     case DecorationStyleType.Underline:
-                        const adjustedUnderlineTint = adjustColorForContrast(tint, backgroundColor);
+                        const adjustedUnderlineTint = applyContrast ? adjustColorForContrast(tint, backgroundColor) : tint;
                         return [
                             `border-bottom: 0.1em solid ${adjustedUnderlineTint} !important`,
                             "background-color: transparent !important",
                             "box-sizing: border-box !important",
                         ].join("; ");
                     case DecorationStyleType.Outline:
-                        const adjustedOutlineTint = adjustColorForContrast(tint, backgroundColor);
+                        const adjustedOutlineTint = applyContrast ? adjustColorForContrast(tint, backgroundColor) : tint;
                         return [
                             `outline: 2px solid ${adjustedOutlineTint} !important`,
                             "outline-offset: 1px !important",
@@ -491,13 +497,15 @@ class DecorationGroup {
                             "box-sizing: border-box !important",
                         ].join("; ");
                     case DecorationStyleType.Highlight:
-                    default:
+                    default: {
+                        const adjustedHighlightTint = applyContrast ? adjustColorForContrast(tint, backgroundColor) : tint;
                         return [
-                            `background-color: ${tint} !important`,
+                            `background-color: ${adjustedHighlightTint} !important`,
                             `mix-blend-mode: ${isDarkMode ? "exclusion" : "multiply"} !important`,
                             "opacity: 1 !important",
                             "box-sizing: border-box !important",
                         ].join("; ");
+                    }
                 }
             })();
 

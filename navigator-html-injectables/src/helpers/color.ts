@@ -230,7 +230,7 @@ const darkenColor = (rgba: { r: number; g: number; b: number; a?: number }, fact
 export const adjustColorForContrast = (
   baseColor: string,
   backgroundColor: string | null = null,
-  targetContrast: number = 4.5
+  targetContrast: number = 3
 ): string => {
   const baseRgba = colorToRgba(baseColor);
   const bgRgba = backgroundColor ? colorToRgba(backgroundColor) : { r: 255, g: 255, b: 255, a: 1 };
