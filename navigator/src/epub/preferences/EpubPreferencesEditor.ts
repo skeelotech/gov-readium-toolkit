@@ -44,7 +44,7 @@ export class EpubPreferencesEditor implements IPreferencesEditor {
   get backgroundColor(): Preference<string> {
     return new Preference<string>({
       initialValue: this.preferences.backgroundColor,
-      effectiveValue: this.settings.backgroundColor || defaultColors.RS__backgroundColor,
+      effectiveValue: this.settings.backgroundColor || defaultColors.backgroundColor,
       isEffective: this.preferences.backgroundColor !== null,
       onChange: (newValue: string | null | undefined) => {
         this.updatePreference("backgroundColor", newValue ?? null);
@@ -302,7 +302,7 @@ export class EpubPreferencesEditor implements IPreferencesEditor {
   get linkColor(): Preference<string> {
     return new Preference<string>({
       initialValue: this.preferences.linkColor,
-      effectiveValue: this.settings.linkColor || defaultColors.RS__linkColor,
+      effectiveValue: this.settings.linkColor || defaultColors.linkColor,
       isEffective: this.layout !== Layout.fixed && this.preferences.linkColor !== null,
       onChange: (newValue: string | null | undefined) => {
         this.updatePreference("linkColor", newValue ?? null);
@@ -455,7 +455,7 @@ export class EpubPreferencesEditor implements IPreferencesEditor {
   get selectionBackgroundColor(): Preference<string> {
     return new Preference<string>({
       initialValue: this.preferences.selectionBackgroundColor,
-      effectiveValue: this.settings.selectionBackgroundColor || defaultColors.RS__selectionBackgroundColor,
+      effectiveValue: this.settings.selectionBackgroundColor || defaultColors.selectionBackgroundColor,
       isEffective: this.layout !== Layout.fixed && this.preferences.selectionBackgroundColor !== null,
       onChange: (newValue: string | null | undefined) => {
         this.updatePreference("selectionBackgroundColor", newValue ?? null);
@@ -466,7 +466,7 @@ export class EpubPreferencesEditor implements IPreferencesEditor {
   get selectionTextColor(): Preference<string> {
     return new Preference<string>({
       initialValue: this.preferences.selectionTextColor,
-      effectiveValue: this.settings.selectionTextColor || defaultColors.RS__selectionTextColor,
+      effectiveValue: this.settings.selectionTextColor || defaultColors.selectionTextColor,
       isEffective: this.layout !== Layout.fixed && this.preferences.selectionTextColor !== null,
       onChange: (newValue: string | null | undefined) => {
         this.updatePreference("selectionTextColor", newValue ?? null);
@@ -489,7 +489,7 @@ export class EpubPreferencesEditor implements IPreferencesEditor {
   get textColor(): Preference<string> {
     return new Preference<string>({
       initialValue: this.preferences.textColor,
-      effectiveValue: this.settings.textColor || defaultColors.RS__textColor,
+      effectiveValue: this.settings.textColor || defaultColors.textColor,
       isEffective: this.layout !== Layout.fixed && this.preferences.textColor !== null,
       onChange: (newValue: string | null | undefined) => {
         this.updatePreference("textColor", newValue ?? null);
@@ -511,7 +511,7 @@ export class EpubPreferencesEditor implements IPreferencesEditor {
   get visitedColor(): Preference<string> {
     return new Preference<string>({
       initialValue: this.preferences.visitedColor,
-      effectiveValue: this.settings.visitedColor || defaultColors.RS__visitedColor,
+      effectiveValue: this.settings.visitedColor || defaultColors.visitedColor,
       isEffective: this.layout !== Layout.fixed && this.preferences.visitedColor !== null,
       onChange: (newValue: string | null | undefined) => {
         this.updatePreference("visitedColor", newValue ?? null);

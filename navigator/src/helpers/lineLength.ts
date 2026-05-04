@@ -27,7 +27,7 @@ export interface ILineLengths {
 }
 
 const DEFAULT_FONT_SIZE = 16;
-const DEFAULT_FONT_FACE = fontStacks.RS__oldStyleTf;
+const DEFAULT_FONT_FACE = fontStacks.oldStyleTf;
 
 // Notes: 
 // 
