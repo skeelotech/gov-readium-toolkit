@@ -175,11 +175,13 @@ class DecorationGroup {
             // CSS Highlight API only handles text-level highlight styling (boxes + wrap).
             // Everything else must go through the DOM overlay path.
             const needsDomOverlay =
-                type === DecorationStyleType.Outline ||
-                type === DecorationStyleType.Template ||
-                type === DecorationStyleType.Mask ||
-                (layout !== undefined && layout !== DecorationLayout.Boxes) ||
-                (width  !== undefined && width  !== DecorationWidth.Wrap);
+                type !== DecorationStyleType.TextColor && (
+                    type === DecorationStyleType.Outline ||
+                    type === DecorationStyleType.Template ||
+                    type === DecorationStyleType.Mask ||
+                    (layout !== undefined && layout !== DecorationLayout.Boxes) ||
+                    (width  !== undefined && width  !== DecorationWidth.Wrap)
+                );
             if (needsDomOverlay) this.notTextFlag?.set(id, true);
         }
 
