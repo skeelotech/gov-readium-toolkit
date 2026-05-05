@@ -412,17 +412,17 @@ class DecorationGroup {
             if (effectiveZoom) iz = 1 / effectiveZoom;
         }
 
-        const positionElement = (element: HTMLElement, rect: Rect, boundingRect: DOMRect) => {
+        const positionElement = (element: HTMLElement, rect: Rect, boundingRect: DOMRect, inlineInset = 0) => {
             const w = item.decoration?.style?.width;
             switch (w) {
                 case DecorationWidth.Viewport: {
                     const snap = Math.floor(ctx.inlineStart(rect) / ctx.viewportInlineSize) * ctx.viewportInlineSize;
-                    ctx.applyPosition(element, snap + ctx.inlineScrollOffset, ctx.blockStart(rect) + ctx.blockScrollOffset, ctx.viewportInlineSize, ctx.blockSize(rect), iz);
+                    ctx.applyPosition(element, snap + ctx.inlineScrollOffset + inlineInset, ctx.blockStart(rect) + ctx.blockScrollOffset, ctx.viewportInlineSize - 2 * inlineInset, ctx.blockSize(rect), iz);
                     break;
                 }
                 case DecorationWidth.Page: {
                     const snap = Math.floor(ctx.inlineStart(rect) / ctx.pageInlineSize) * ctx.pageInlineSize;
-                    ctx.applyPosition(element, snap + ctx.inlineScrollOffset, ctx.blockStart(rect) + ctx.blockScrollOffset, ctx.pageInlineSize, ctx.blockSize(rect), iz);
+                    ctx.applyPosition(element, snap + ctx.inlineScrollOffset + inlineInset, ctx.blockStart(rect) + ctx.blockScrollOffset, ctx.pageInlineSize - 2 * inlineInset, ctx.blockSize(rect), iz);
                     break;
                 }
                 case DecorationWidth.Bounds: {
@@ -434,10 +434,17 @@ class DecorationGroup {
                 }
             }
         }
-
         const boundingRect = item.range.getBoundingClientRect();
 
         const decoStyle = item.decoration.style;
+        // outline: 2px + outline-offset: 1px = 3px bleed outside the box on each side.
+        // For Page/Viewport widths the snap edge coincides with the viewport edge, so the
+        // outline would be clipped. Inset the element to give that bleed room to render.
+        const outlineInset = (() => {
+            if ((decoStyle as BuiltinDecorationStyle).type !== DecorationStyleType.Outline) return 0;
+            const w = (decoStyle as BuiltinDecorationStyle).width;
+            return (w === DecorationWidth.Page || w === DecorationWidth.Viewport) ? 3 : 0;
+        })();
         let elementTemplate: Element;
 
         if (decoStyle.type === DecorationStyleType.Template) {
@@ -516,7 +523,7 @@ class DecorationGroup {
         if(item.decoration?.style?.layout === DecorationLayout.Bounds) {
             const bounds = elementTemplate.cloneNode(true) as HTMLDivElement;
             bounds.style.setProperty("pointer-events", "none");
-            positionElement(bounds, boundingRect, boundingRect);
+            positionElement(bounds, boundingRect, boundingRect, outlineInset);
             itemContainer.append(bounds);
         } else {
             // Fall back to "boxes" value for layout
@@ -538,7 +545,7 @@ class DecorationGroup {
             for (let clientRect of clientRects) {
               const line = elementTemplate.cloneNode(true) as HTMLDivElement;
               line.style.setProperty("pointer-events", "none");
-              positionElement(line, clientRect, boundingRect);
+              positionElement(line, clientRect, boundingRect, outlineInset);
               itemContainer.append(line);
             }
         }
