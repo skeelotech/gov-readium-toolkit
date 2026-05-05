@@ -14,7 +14,6 @@ import { sanitizeHTML } from "../helpers/sanitize.ts";
 function defaultTint(type: DecorationStyleType): string {
     switch (type) {
         case DecorationStyleType.Mask:
-        case DecorationStyleType.MaskBlock:
             return "rgba(255, 255, 255, 0.5)";
         case DecorationStyleType.Highlight:
             return "#FFFF00";
@@ -40,8 +39,7 @@ export enum DecorationStyleType {
     Underline = "underline", // Underline drawn beneath the text.
     Outline   = "outline",   // Border drawn around the text boxes.
     TextColor = "textColor", // Changes the text color directly.
-    Mask      = "mask",      // Dims everything outside the selection rects.
-    MaskBlock = "maskBlock", // Dims everything outside the nearest block-level ancestor.
+    Mask      = "mask",      // Dims everything outside the selection rects. Use width: Page for block-level behaviour.
     Template  = "template",  // Custom HTML template (HTMLDecorationTemplate).
 }
 
@@ -180,7 +178,6 @@ class DecorationGroup {
                 type === DecorationStyleType.Outline ||
                 type === DecorationStyleType.Template ||
                 type === DecorationStyleType.Mask ||
-                type === DecorationStyleType.MaskBlock ||
                 (layout !== undefined && layout !== DecorationLayout.Boxes) ||
                 (width  !== undefined && width  !== DecorationWidth.Wrap);
             if (needsDomOverlay) this.notTextFlag?.set(id, true);
@@ -206,8 +203,7 @@ class DecorationGroup {
         if (index < 0) return;
 
         const item = this.items[index];
-        const wasMask = item.decoration.style?.type === DecorationStyleType.Mask || 
-                        item.decoration.style?.type === DecorationStyleType.MaskBlock;
+        const wasMask = item.decoration.style?.type === DecorationStyleType.Mask;
         
         this.items.splice(index, 1);
         item.clickableElements = undefined;
@@ -473,8 +469,8 @@ class DecorationGroup {
                 return;
             }
 
-            // Mask/MaskBlock: dim overlay covering the full document with SVG clip-path holes.
-            if (type === DecorationStyleType.Mask || type === DecorationStyleType.MaskBlock) {
+            // Mask: dim overlay covering the full document with SVG clip-path holes.
+            if (type === DecorationStyleType.Mask) {
                 // Mask decorations use a shared overlay - just mark the item and update the shared mask
                 item.container = itemContainer;
                 item.clickableElements = [];
@@ -635,9 +631,8 @@ class DecorationGroup {
     }
 
     private updateSharedMask() {
-        const maskItems = this.items.filter(item => 
-            item.decoration.style?.type === DecorationStyleType.Mask || 
-            item.decoration.style?.type === DecorationStyleType.MaskBlock
+        const maskItems = this.items.filter(item =>
+            item.decoration.style?.type === DecorationStyleType.Mask
         );
 
         if (maskItems.length === 0) {
@@ -668,10 +663,9 @@ class DecorationGroup {
         const docH = docEl.scrollHeight;
         const allHoleRects: DOMRect[] = [];
         for (const item of maskItems) {
-            const style       = item.decoration.style as BuiltinDecorationStyle;
-            const isMaskBlock = style.type === DecorationStyleType.MaskBlock;
-            const layout      = style.layout ?? DecorationLayout.Boxes;
-            const width       = style.width  ?? DecorationWidth.Wrap;
+            const style  = item.decoration.style as BuiltinDecorationStyle;
+            const layout = style.layout ?? DecorationLayout.Boxes;
+            const width  = style.width  ?? DecorationWidth.Wrap;
 
             const boundingRect = item.range.getBoundingClientRect();
 
@@ -679,7 +673,6 @@ class DecorationGroup {
                 ? [boundingRect]
                 : Array.from(item.range.getClientRects());
 
-            const itemHoles: DOMRect[] = [];
             for (const rect of baseRects) {
                 let hole: DOMRect;
                 switch (width) {
@@ -697,40 +690,10 @@ class DecorationGroup {
                         hole = ctx.toRect(ctx.inlineStart(boundingRect), ctx.blockStart(rect), ctx.inlineSize(boundingRect), ctx.blockSize(rect));
                         break;
                     }
-                    default: {
-                        if (isMaskBlock) {
-                            // Snap each line/column to the full page extent in the inline direction.
-                            const snap = Math.floor(ctx.inlineStart(rect) / ctx.pageInlineSize) * ctx.pageInlineSize;
-                            hole = ctx.toRect(snap, ctx.blockStart(rect), ctx.pageInlineSize, ctx.blockSize(rect));
-                        } else {
-                            hole = rect;
-                        }
-                    }
+                    default:
+                        hole = rect;
                 }
-                itemHoles.push(hole);
-            }
-
-            if (isMaskBlock) {
-                // Merge holes sharing the same block-start into one continuous inline span,
-                // closing inter-line (horizontal) or inter-column (vertical) gaps.
-                const lineMap = new Map<number, { inlineStart: number; inlineEnd: number; blockSize: number }>();
-                for (const h of itemHoles) {
-                    const bs = ctx.blockStart(h);
-                    const is = ctx.inlineStart(h);
-                    const ie = is + ctx.inlineSize(h);
-                    const existing = lineMap.get(bs);
-                    if (existing) {
-                        existing.inlineStart = Math.min(existing.inlineStart, is);
-                        existing.inlineEnd   = Math.max(existing.inlineEnd, ie);
-                    } else {
-                        lineMap.set(bs, { inlineStart: is, inlineEnd: ie, blockSize: ctx.blockSize(h) });
-                    }
-                }
-                for (const [bs, { inlineStart, inlineEnd, blockSize }] of lineMap) {
-                    allHoleRects.push(ctx.toRect(inlineStart, bs, inlineEnd - inlineStart, blockSize));
-                }
-            } else {
-                allHoleRects.push(...itemHoles);
+                allHoleRects.push(hole);
             }
         }
 
