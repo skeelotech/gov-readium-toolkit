@@ -47,7 +47,7 @@ interface BuiltinDecorationStyle {
 | `DecorationStyleType.Highlight` | Background-color overlay (default). |
 | `DecorationStyleType.Underline` | Line drawn beneath the text. |
 | `DecorationStyleType.Outline` | Border drawn around each text box. |
-| `DecorationStyleType.TextColor` | Changes the text color directly. Requires CSS Highlight API; invisible in older browsers. **Note**: Due to CSS Highlight API limitations, viewport width behaves as wrap (fits text exactly) instead of stretching to full viewport width. Page and Bounds widths are supported. |
+| `DecorationStyleType.TextColor` | Changes the text color directly. Requires CSS Highlight API; invisible in older browsers. **Note**: Due to CSS Highlight API limitations, viewport width behaves as wrap (fits text exactly) instead of stretching to full viewport width. Page and Bounds widths are supported for TextColor. **Vertical Writing**: Due to known browser bugs with `caretPositionFromPoint()` in vertical writing modes, bounds/page width falls back to wrap behavior to ensure reliability. |
 | `DecorationStyleType.Mask` | Dims everything outside the selection rects. Use `width: Page` for block-level behavior. |
 | `DecorationStyleType.Template` | Custom HTML template (see `HTMLDecorationTemplate`). |
 

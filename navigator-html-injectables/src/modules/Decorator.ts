@@ -356,19 +356,26 @@ class DecorationGroup {
                 highlighter.add(item.range);
             } else if (width === DecorationWidth.Bounds || width === DecorationWidth.Page) {
                 // bounds and page: color all text within bounding rect
-                // Use top-left and bottom-right corners to span all lines
-                const boundingRect = item.range.getBoundingClientRect();
-                const startCaret = caretPositionFromPoint(boundingRect.left, boundingRect.top + 1);
-                const endCaret = caretPositionFromPoint(boundingRect.right, boundingRect.bottom - 1);
-                if (startCaret && endCaret) {
-                    const expandedRange = this.wnd.document.createRange();
-                    expandedRange.setStart(startCaret.offsetNode, startCaret.offset);
-                    expandedRange.setEnd(endCaret.offsetNode, endCaret.offset);
-                    highlighter.add(expandedRange);
-                    // Update item.range so hit testing in handleActivation uses the expanded area
-                    item.range = expandedRange;
-                } else {
+                // For vertical writing, caretPositionFromPoint has browser bugs - use fallback
+                const ctx = makeWritingContext(this.wnd);
+                if (ctx.isVertical) {
+                    console.warn('Vertical writing detected: caretPositionFromPoint has known bugs, falling back to original range');
                     highlighter.add(item.range);
+                } else {
+                    // Horizontal writing: use caretPositionFromPoint to expand range
+                    const boundingRect = item.range.getBoundingClientRect();
+                    const startCaret = caretPositionFromPoint(ctx.inlineStart(boundingRect), ctx.blockStart(boundingRect) + 1);
+                    const endCaret = caretPositionFromPoint(ctx.inlineStart(boundingRect) + ctx.inlineSize(boundingRect), ctx.blockStart(boundingRect) + ctx.blockSize(boundingRect) - 1);
+                    if (startCaret && endCaret) {
+                        const expandedRange = this.wnd.document.createRange();
+                        expandedRange.setStart(startCaret.offsetNode, startCaret.offset);
+                        expandedRange.setEnd(endCaret.offsetNode, endCaret.offset);
+                        highlighter.add(expandedRange);
+                        // Update item.range so hit testing in handleActivation uses the expanded area
+                        item.range = expandedRange;
+                    } else {
+                        highlighter.add(item.range);
+                    }
                 }
             } else if (width === DecorationWidth.Viewport) {
                 // viewport: falls back to wrap due to CSS Highlight API limitations
