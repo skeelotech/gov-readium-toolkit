@@ -487,13 +487,18 @@ class DecorationGroup {
             const applyContrast = style.enforceContrast !== false;
             const styleAttr = (() => {
                 switch (type) {
-                    case DecorationStyleType.Underline:
+                    case DecorationStyleType.Underline: {
                         const adjustedUnderlineTint = applyContrast ? adjustColorForContrast(tint, backgroundColor) : tint;
+                        const isBounds = style.layout === DecorationLayout.Bounds;
                         return [
+                            isBounds
+                                ? `border-top: 0.1em solid ${adjustedUnderlineTint} !important`
+                                : null,
                             `border-bottom: 0.1em solid ${adjustedUnderlineTint} !important`,
                             "background-color: transparent !important",
                             "box-sizing: border-box !important",
-                        ].join("; ");
+                        ].filter(Boolean).join("; ");
+                    }
                     case DecorationStyleType.Outline:
                         const adjustedOutlineTint = applyContrast ? adjustColorForContrast(tint, backgroundColor) : tint;
                         return [
