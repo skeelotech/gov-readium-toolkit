@@ -172,19 +172,18 @@ class DecorationGroup {
             }
         }
         if (this.experimentalHighlights) {
-            if (decoration.style?.type === DecorationStyleType.Outline) {
-                // CSS Highlight API does not support `outline`; force DOM overlay path.
-                this.notTextFlag?.set(id, true);
-            }
-            if (decoration.style?.type === DecorationStyleType.Template) {
-                // Custom element templates render as DOM nodes, not CSS ranges.
-                this.notTextFlag?.set(id, true);
-            }
-            if (decoration.style?.type === DecorationStyleType.Mask ||
-                decoration.style?.type === DecorationStyleType.MaskBlock) {
-                // Mask overlays are SVG/DOM constructs; CSS Highlight API cannot represent them.
-                this.notTextFlag?.set(id, true);
-            }
+            const { type } = decoration.style;
+            const { layout, width } = decoration.style as BuiltinDecorationStyle;
+            // CSS Highlight API only handles text-level highlight styling (boxes + wrap).
+            // Everything else must go through the DOM overlay path.
+            const needsDomOverlay =
+                type === DecorationStyleType.Outline ||
+                type === DecorationStyleType.Template ||
+                type === DecorationStyleType.Mask ||
+                type === DecorationStyleType.MaskBlock ||
+                (layout !== undefined && layout !== DecorationLayout.Boxes) ||
+                (width  !== undefined && width  !== DecorationWidth.Wrap);
+            if (needsDomOverlay) this.notTextFlag?.set(id, true);
         }
 
         const item = {
