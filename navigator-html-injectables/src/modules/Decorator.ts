@@ -337,12 +337,46 @@ class DecorationGroup {
 
     private experimentalLayout(item: DecorationItem) {
         const [stylesheet, highlighter]: [HTMLStyleElement, any] = this.requireContainer(true) as [HTMLStyleElement, unknown];
-        highlighter.add(item.range);
 
         // Template items are always routed to the DOM overlay; only BuiltinDecorationStyle reaches here.
         const style = item.decoration.style as BuiltinDecorationStyle;
         const type = style.type ?? DecorationStyleType.Highlight;
         const tint = style.tint ?? defaultTint(type);
+        const width = style.width;
+
+        // Helper for caret position
+        const caretPositionFromPoint = (x: number, y: number): CaretPosition | null => {
+            return this.wnd.document.caretPositionFromPoint?.(x, y) ?? null;
+        };
+
+        // Width-aware range registration for TextColor
+        if (type === DecorationStyleType.TextColor) {
+            if (width === undefined || width === DecorationWidth.Wrap) {
+                // wrap: register original range
+                highlighter.add(item.range);
+            } else if (width === DecorationWidth.Bounds || width === DecorationWidth.Page) {
+                // bounds and page: color all text within bounding rect
+                // Use top-left and bottom-right corners to span all lines
+                const boundingRect = item.range.getBoundingClientRect();
+                const startCaret = caretPositionFromPoint(boundingRect.left, boundingRect.top + 1);
+                const endCaret = caretPositionFromPoint(boundingRect.right, boundingRect.bottom - 1);
+                if (startCaret && endCaret) {
+                    const expandedRange = this.wnd.document.createRange();
+                    expandedRange.setStart(startCaret.offsetNode, startCaret.offset);
+                    expandedRange.setEnd(endCaret.offsetNode, endCaret.offset);
+                    highlighter.add(expandedRange);
+                    // Update item.range so hit testing in handleActivation uses the expanded area
+                    item.range = expandedRange;
+                } else {
+                    highlighter.add(item.range);
+                }
+            } else if (width === DecorationWidth.Viewport) {
+                // viewport: falls back to wrap due to CSS Highlight API limitations
+                highlighter.add(item.range);
+            }
+        } else {
+            highlighter.add(item.range);
+        }
 
         // TODO add caching layer ("vdom") to this so we aren't completely replacing the CSS every time
         const backgroundColor = this.getBackgroundColor();

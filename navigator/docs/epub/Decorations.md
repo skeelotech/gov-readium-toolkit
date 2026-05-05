@@ -36,6 +36,7 @@ interface BuiltinDecorationStyle {
   layout?: DecorationLayout;    // Defaults to Boxes
   width?: DecorationWidth;      // Defaults to Wrap
   isActive?: boolean;           // Set to true to allow the user to click/tap this decoration
+  enforceContrast?: boolean;    // When true (default), tint is adjusted for contrast against the background
 }
 ```
 
@@ -46,7 +47,9 @@ interface BuiltinDecorationStyle {
 | `DecorationStyleType.Highlight` | Background-color overlay (default). |
 | `DecorationStyleType.Underline` | Line drawn beneath the text. |
 | `DecorationStyleType.Outline` | Border drawn around each text box. |
-| `DecorationStyleType.TextColor` | Changes the text color directly. Requires CSS Highlight API; invisible in older browsers. |
+| `DecorationStyleType.TextColor` | Changes the text color directly. Requires CSS Highlight API; invisible in older browsers. **Note**: Due to CSS Highlight API limitations, viewport width behaves as wrap (fits text exactly) instead of stretching to full viewport width. Page and Bounds widths are supported. |
+| `DecorationStyleType.Mask` | Dims everything outside the selection rects. Use `width: Page` for block-level behavior. |
+| `DecorationStyleType.Template` | Custom HTML template (see `HTMLDecorationTemplate`). |
 
 **`DecorationLayout`**
 
@@ -60,8 +63,8 @@ interface BuiltinDecorationStyle {
 | Value | Description |
 |---|---|
 | `DecorationWidth.Wrap` | Fits the text exactly (default). |
-| `DecorationWidth.Viewport` | Stretches to the full viewport width. |
-| `DecorationWidth.Page` | Fills one page in a paginated layout. |
+| `DecorationWidth.Viewport` | Stretches to the full viewport width. **Note**: Works as expected for Highlight, Underline, and Outline styles. For TextColor, viewport behaves as wrap due to CSS Highlight API limitations. Page and Bounds widths are supported for TextColor. |
+| `DecorationWidth.Page` | Fills one page in a paginated layout (uses page boundaries, not viewport boundaries). |
 | `DecorationWidth.Bounds` | Fills the anchor page (useful in dual-page FXL). |
 
 #### HTMLDecorationTemplate
@@ -138,6 +141,8 @@ if (navigator.supportsDecorationStyle({ type: DecorationStyleType.Highlight, tin
 ```
 
 This always returns `true` for `EpubNavigator` — it is mainly useful for navigator-agnostic code.
+
+**Note**: While TextColor is supported, it has limitations with viewport width due to CSS Highlight API constraints. Page and Bounds widths are supported for TextColor. Use other decoration styles if viewport behavior is required.
 
 ## Activation (Click / Tap)
 
