@@ -64,27 +64,27 @@ interface BuiltinDecorationStyle {
 |---|---|
 | `DecorationWidth.Wrap` | Fits the text exactly (default). |
 | `DecorationWidth.Viewport` | Stretches to the full viewport width. **Note**: Works as expected for Highlight, Underline, and Outline styles. For TextColor, viewport behaves as wrap due to CSS Highlight API limitations. Page and Bounds widths are supported for TextColor. |
-| `DecorationWidth.Page` | Fills one page in a paginated layout (uses page boundaries, not viewport boundaries). |
-| `DecorationWidth.Bounds` | Fills the anchor page (useful in dual-page FXL). |
+| `DecorationWidth.Page` | Fills the anchor page, useful for dual-page layouts. |
+| `DecorationWidth.Bounds` | Fills the bounding region of all CSS border boxes. |
 
 #### HTMLDecorationTemplate
 
-For fully custom decoration rendering, use `HTMLDecorationTemplate`. The `element` string is an HTML snippet that is sanitized before injection; the `stylesheet` is injected as a `<style>` element scoped to the decoration group.
+For fully custom decoration rendering, use `HTMLDecorationTemplate`. The `element` function is called once per decoration to generate the HTML snippet that is sanitized before injection; the `stylesheet` is injected as a `<style>` element scoped to the decoration group.
 
 ```ts
 interface HTMLDecorationTemplate {
   type: DecorationStyleType.Template;
-  layout: DecorationLayout;     // Required
-  width: DecorationWidth;       // Required
-  element: string;              // HTML snippet — sanitized before use
-  stylesheet?: string;          // CSS injected into the resource
+  layout: DecorationLayout;                        // Required
+  width: DecorationWidth;                          // Required
+  element: (decoration: Decoration) => string;     // Returns an HTML snippet for each decoration
+  stylesheet?: string;                             // CSS injected into the resource
   isActive?: boolean;
 }
 ```
 
-The `element` HTML is cloned once per positioned box (or once for `Bounds` layout). Use CSS classes and the injected `stylesheet` to style the elements. Prefix all class names and IDs with your app name to avoid conflicts — `r2-` and `readium-` are reserved.
+Because `element` receives the full `Decoration` object, the generated HTML can vary per-decoration — for example to embed the decoration's tint color or extra data as an inline style or attribute. The returned HTML is cloned once per positioned box (or once for `Bounds` layout). Use CSS classes and the injected `stylesheet` to style the elements. Prefix all class names and IDs with your app name to avoid conflicts — `r2-` and `readium-` are reserved.
 
-> **Security** — The `element` string is sanitized through an allowlist before injection. Script elements, event-handler attributes (`on*`), and `javascript:`/`data:` URLs are always stripped.
+> **Security** — The HTML returned by `element` is sanitized through an allowlist before injection. Script elements, event-handler attributes (`on*`), and `javascript:`/`data:` URLs are always stripped.
 
 ### Groups
 
@@ -132,15 +132,23 @@ Decorations are **automatically reapplied** when the navigator loads a new resou
 
 ## Checking DecorationStyle Support
 
-Before enabling a feature that relies on a specific style, you can verify the navigator supports it:
+Before enabling a feature that relies on a specific style, you can verify the navigator supports it by passing the style type ID:
 
 ```ts
-if (navigator.supportsDecorationStyle({ type: DecorationStyleType.Highlight, tint: "#ffff00" })) {
+if (navigator.supportsDecorationStyle(DecorationStyleType.Highlight)) {
   // safe to apply
 }
 ```
 
-This always returns `true` for `EpubNavigator` — it is mainly useful for navigator-agnostic code.
+For custom registered styles (see [Custom Named Styles](#custom-named-styles) below), pass the registered ID:
+
+```ts
+if (navigator.supportsDecorationStyle("app-sidemark")) {
+  // safe to apply
+}
+```
+
+`EpubNavigator` returns `true` for all built-in types and for any ID registered in `DecoratorConfig.decorationTemplates`. This method is mainly useful for navigator-agnostic code that may run against non-HTML navigators.
 
 **Note**: While TextColor is supported, it has limitations with viewport width due to CSS Highlight API constraints. Page and Bounds widths are supported for TextColor. Use other decoration styles if viewport behavior is required.
 
@@ -325,7 +333,7 @@ Because `isActive` is not set, tapping a search result falls through to normal n
 
 ## Complete Example — Custom Template (Sidemark)
 
-`HTMLDecorationTemplate` lets you supply your own HTML and CSS for a decoration. This example renders a colored sidebar mark next to each decorated paragraph.
+`HTMLDecorationTemplate` lets you supply your own HTML and CSS for a decoration. The `element` function receives the full `Decoration` so it can embed per-decoration data (here, the tint color stored in `extras`). This example renders a colored sidebar mark next to each decorated paragraph.
 
 ```ts
 import { Decoration, DecorationLayout, DecorationStyleType, DecorationWidth } from "@readium/navigator";
@@ -348,11 +356,15 @@ function sidemarkDecoration(id: string, locator: Locator, color: string): Decora
   return {
     id,
     locator,
+    extras: { color },
     style: {
       type: DecorationStyleType.Template,
       layout: DecorationLayout.Bounds,
       width: DecorationWidth.Wrap,
-      element: `<div class="app-sidemark" style="--app-tint: ${color}"></div>`,
+      element: (decoration) => {
+        const tint = (decoration.extras?.color as string | undefined) ?? "blue";
+        return `<div class="app-sidemark" style="--app-tint: ${tint}"></div>`;
+      },
       stylesheet: SIDEMARK_CSS,
     },
   };
@@ -365,3 +377,64 @@ navigator.applyDecorations(
 ```
 
 > Prefix all class names and IDs with your app name. `r2-` and `readium-` are reserved by the toolkit.
+
+## Custom Named Styles
+
+For styles you apply across many decorations, repeating the full `HTMLDecorationTemplate` inline in every `Decoration` object is verbose. You can instead register named styles in the navigator configuration and reference them by ID.
+
+### Registering a style
+
+Pass a `decoratorConfig` when constructing the navigator:
+
+```ts
+import { EpubNavigator, DecorationLayout, DecorationWidth } from "@readium/navigator";
+
+const SIDEMARK_CSS = `...`;
+
+const navigator = new EpubNavigator(container, publication, listeners, positions, undefined, {
+  preferences: {},
+  defaults: {},
+  decoratorConfig: {
+    decorationTemplates: {
+      "app-sidemark": {
+        type: "template",
+        layout: DecorationLayout.Bounds,
+        width: DecorationWidth.Wrap,
+        element: (decoration) => {
+          const tint = (decoration.extras?.color as string | undefined) ?? "blue";
+          return `<div class="app-sidemark" style="--app-tint: ${tint}"></div>`;
+        },
+        stylesheet: SIDEMARK_CSS,
+      },
+    },
+  },
+});
+```
+
+### Using a registered style
+
+Reference the registered ID in `style.type`. The navigator resolves the template automatically before sending the decoration to the iframe:
+
+```ts
+function sidemarkDecoration(id: string, locator: Locator, color: string): Decoration {
+  return {
+    id,
+    locator,
+    extras: { color },
+    style: { type: "app-sidemark" },
+  };
+}
+
+navigator.applyDecorations(
+  [sidemarkDecoration("mark-1", myLocator, "#4a90e2")],
+  "sidemarks"
+);
+```
+
+### When to use each approach
+
+| | Inline `HTMLDecorationTemplate` | Registered named style |
+|---|---|---|
+| Template defined | Per decoration | Once at navigator init |
+| Best for | One-off or rare styles | Styles reused across many decorations |
+| `supportsDecorationStyle` | Always true | Checks the registry |

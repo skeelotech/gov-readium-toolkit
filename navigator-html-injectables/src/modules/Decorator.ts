@@ -22,11 +22,21 @@ function defaultTint(type: DecorationStyleType): string {
     }
 }
 
+export const DecorationStyleType = {
+    Highlight: "highlight", // Background color overlay.
+    Underline: "underline", // Underline drawn beneath the text.
+    Outline:   "outline",   // Border drawn around the text boxes.
+    TextColor: "textColor", // Changes the text color directly.
+    Mask:      "mask",      // Dims everything outside the selection rects. Use width: Page for block-level behaviour.
+    Template:  "template",  // Custom HTML template (HTMLDecorationTemplate).
+} as const;
+export type DecorationStyleType = typeof DecorationStyleType[keyof typeof DecorationStyleType];
+
 export enum DecorationWidth {
     Wrap = "wrap", // Smallest width fitting the CSS border box.
     Viewport = "viewport", // Fills the whole viewport.
-    Bounds = "bounds", // Fills the anchor page, useful for dual page.
-    Page = "page", // Fills the whole viewport.
+    Bounds = "bounds", // Fills the bounding region of all CSS border boxes.
+    Page = "page", // Fills the anchor page, useful for dual-page layouts.
 }
 
 export enum DecorationLayout {
@@ -34,18 +44,9 @@ export enum DecorationLayout {
     Bounds = "bounds", // A single HTML element covering the smallest region containing all CSS border boxes.
 }
 
-export enum DecorationStyleType {
-    Highlight = "highlight", // Background color overlay.
-    Underline = "underline", // Underline drawn beneath the text.
-    Outline   = "outline",   // Border drawn around the text boxes.
-    TextColor = "textColor", // Changes the text color directly.
-    Mask      = "mask",      // Dims everything outside the selection rects. Use width: Page for block-level behaviour.
-    Template  = "template",  // Custom HTML template (HTMLDecorationTemplate).
-}
-
 /** Built-in decoration styles. layout/width are optional overrides; defaults are Boxes/Wrap. */
 export interface BuiltinDecorationStyle {
-    type?: Exclude<DecorationStyleType, DecorationStyleType.Template>;
+    type?: Exclude<DecorationStyleType, "template">;
     tint?: string;
     layout?: DecorationLayout;
     width?: DecorationWidth;
@@ -60,7 +61,7 @@ export interface BuiltinDecorationStyle {
  * --readium-tint is injected as a CSS custom property on each created element.
  */
 export interface HTMLDecorationTemplate {
-    type: DecorationStyleType.Template;
+    type: "template";
     layout: DecorationLayout;
     width: DecorationWidth;
     element: string;

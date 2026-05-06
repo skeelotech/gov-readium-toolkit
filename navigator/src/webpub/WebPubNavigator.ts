@@ -2,10 +2,10 @@ import { Feature, Link, Locator, LocatorText, Publication, ReadingProgression, L
 import { VisualNavigator, VisualNavigatorViewport, ProgressionRange } from "../Navigator.ts";
 import { Configurable } from "../preferences/Configurable.ts";
 import { WebPubFramePoolManager } from "./WebPubFramePoolManager.ts";
-import { BasicTextSelection, CommsEventKey, ContextMenuEvent, Decoration, DecorationActivatedEvent, DecorationStyle, FrameClickEvent, KeyboardEventData, ModuleName, SuspiciousActivityEvent, WebPubModules } from "@readium/navigator-html-injectables";
+import { BasicTextSelection, CommsEventKey, ContextMenuEvent, DecorationActivatedEvent, FrameClickEvent, KeyboardEventData, ModuleName, SuspiciousActivityEvent, WebPubModules } from "@readium/navigator-html-injectables";
 import * as path from "path-browserify";
 import { WebPubFrameManager } from "./WebPubFrameManager.ts";
-import { DecorableNavigator, DecorationActivationEvent, DecorationObserver, decorationsEqual } from "../decorations/index.ts";
+import { Decoration, DecorableNavigator, DecorationActivationEvent, DecorationObserver, DecoratorConfig, decorationsEqual, resolveDecorationForWire, BUILTIN_DECORATION_TYPES } from "../decorations/index.ts";
 
 import { ManagerEventKey } from "../epub/EpubNavigator.ts";
 import { getScriptMode } from "../helpers/scriptMode.ts";
@@ -28,6 +28,7 @@ export interface WebPubNavigatorConfiguration {
     injectables?: IInjectablesConfig;
     contentProtection?: IContentProtectionConfig;
     keyboardPeripherals?: IKeyboardPeripheralsConfig;
+    decoratorConfig?: DecoratorConfig;
 }
 
 export interface WebPubNavigatorListeners {
@@ -81,6 +82,8 @@ export class WebPubNavigator extends VisualNavigator implements Configurable<Web
     private readonly _suspiciousActivityListener: ((event: Event) => void) | null = null;
     private readonly _keyboardPeripheralListener: ((event: Event) => void) | null = null;
 
+    private readonly _decoratorConfig: DecoratorConfig;
+
     private _decorations: Map<string, Decoration[]> = new Map();
     private _decorationObservers: Map<string, Set<DecorationObserver>> = new Map();
     private _decorationActivationState: Map<string, boolean> = new Map();
@@ -118,6 +121,7 @@ export class WebPubNavigator extends VisualNavigator implements Configurable<Web
 
         // Initialize content protection with provided config or default values
         this._contentProtection = configuration.contentProtection || {};
+        this._decoratorConfig = configuration.decoratorConfig || {};
 
         // Merge keyboard peripherals
         this._keyboardPeripherals = this.mergeKeyboardPeripherals(
@@ -433,8 +437,9 @@ export class WebPubNavigator extends VisualNavigator implements Configurable<Web
 
     // DecorableNavigator
 
-    public supportsDecorationStyle(_style: DecorationStyle): boolean {
-        return true;
+    public supportsDecorationStyle(styleTypeId: string): boolean {
+        return BUILTIN_DECORATION_TYPES.has(styleTypeId) ||
+            !!this._decoratorConfig.decorationTemplates?.[styleTypeId];
     }
 
     public registerDecorationObserver(group: string, observer: DecorationObserver): void {
@@ -506,11 +511,11 @@ export class WebPubNavigator extends VisualNavigator implements Configurable<Web
         }
         for (const d of toAdd) {
             if (d.locator.href !== href) continue;
-            frame.msg.send("decorate", { group, action: "add", decoration: d });
+            frame.msg.send("decorate", { group, action: "add", decoration: resolveDecorationForWire(d, this._decoratorConfig.decorationTemplates) });
         }
         for (const d of toUpdate) {
             if (d.locator.href !== href) continue;
-            frame.msg.send("decorate", { group, action: "update", decoration: d });
+            frame.msg.send("decorate", { group, action: "update", decoration: resolveDecorationForWire(d, this._decoratorConfig.decorationTemplates) });
         }
     }
 
@@ -524,7 +529,7 @@ export class WebPubNavigator extends VisualNavigator implements Configurable<Web
             if (matching.length === 0) continue;
             frame.msg.send("decorate", { group, action: "clear" });
             for (const d of matching)
-                frame.msg.send("decorate", { group, action: "add", decoration: d });
+                frame.msg.send("decorate", { group, action: "add", decoration: resolveDecorationForWire(d, this._decoratorConfig.decorationTemplates) });
         }
         for (const [group, activatable] of this._decorationActivationState) {
             frame.msg.send("decoration_activatable", { group, activatable });

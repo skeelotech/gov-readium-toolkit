@@ -2,8 +2,8 @@ import { Layout, Link, Locator, LocatorText, Profile, Publication, ReadingProgre
 import { Configurable, ConfigurableSettings, LineLengths, ProgressionRange, VisualNavigator, VisualNavigatorViewport } from "../index.ts";
 import { FramePoolManager } from "./frame/FramePoolManager.ts";
 import { FXLFramePoolManager } from "./fxl/FXLFramePoolManager.ts";
-import { CommsEventKey, ContextMenuEvent, Decoration, DecorationActivatedEvent, DecorationStyle, FXLModules, KeyboardEventData, ModuleLibrary, ModuleName, ReflowableModules, BasicTextSelection, FrameClickEvent, SuspiciousActivityEvent } from "@readium/navigator-html-injectables";
-import { DecorationActivationEvent, DecorationObserver, DecorableNavigator, decorationsEqual } from "../decorations/index.ts";
+import { CommsEventKey, ContextMenuEvent, DecorationActivatedEvent, FXLModules, KeyboardEventData, ModuleLibrary, ModuleName, ReflowableModules, BasicTextSelection, FrameClickEvent, SuspiciousActivityEvent } from "@readium/navigator-html-injectables";
+import { Decoration, DecorationActivationEvent, DecorationObserver, DecorableNavigator, DecoratorConfig, decorationsEqual, resolveDecorationForWire, BUILTIN_DECORATION_TYPES } from "../decorations/index.ts";
 import * as path from "path-browserify";
 import { FXLFrameManager } from "./fxl/FXLFrameManager.ts";
 import { FrameManager } from "./frame/FrameManager.ts";
@@ -30,6 +30,7 @@ export interface EpubNavigatorConfiguration {
     injectables?: IInjectablesConfig;
     contentProtection?: IContentProtectionConfig;
     keyboardPeripherals?: IKeyboardPeripheralsConfig;
+    decoratorConfig?: DecoratorConfig;
 }
 
 export interface EpubNavigatorListeners {
@@ -92,6 +93,8 @@ export class EpubNavigator extends VisualNavigator implements Configurable<Confi
     private readonly _keyboardPeripheralListener: ((event: Event) => void) | null = null;
 
     private resizeObserver: ResizeObserver;
+
+    private readonly _decoratorConfig: DecoratorConfig;
 
     private _decorations: Map<string, Decoration[]> = new Map();
     private _decorationObservers: Map<string, Set<DecorationObserver>> = new Map();
@@ -157,6 +160,7 @@ export class EpubNavigator extends VisualNavigator implements Configurable<Confi
         this._readiumRulesPromise = createReadiumEpubRules(pub.metadata, pub.readingOrder.items);
 
         this._contentProtection = configuration.contentProtection || {};
+        this._decoratorConfig = configuration.decoratorConfig || {};
 
         // Merge keyboard peripherals
         this._keyboardPeripherals = this.mergeKeyboardPeripherals(
@@ -632,8 +636,9 @@ export class EpubNavigator extends VisualNavigator implements Configurable<Confi
 
     // DecorableNavigator
 
-    public supportsDecorationStyle(_style: DecorationStyle): boolean {
-        return true;
+    public supportsDecorationStyle(styleTypeId: string): boolean {
+        return BUILTIN_DECORATION_TYPES.has(styleTypeId) ||
+            !!this._decoratorConfig.decorationTemplates?.[styleTypeId];
     }
 
     public registerDecorationObserver(group: string, observer: DecorationObserver): void {
@@ -716,11 +721,11 @@ export class EpubNavigator extends VisualNavigator implements Configurable<Confi
             }
             for (const d of toAdd) {
                 if (d.locator.href !== href) continue;
-                frame.msg.send("decorate", { group, action: "add", decoration: d });
+                frame.msg.send("decorate", { group, action: "add", decoration: resolveDecorationForWire(d, this._decoratorConfig.decorationTemplates) });
             }
             for (const d of toUpdate) {
                 if (d.locator.href !== href) continue;
-                frame.msg.send("decorate", { group, action: "update", decoration: d });
+                frame.msg.send("decorate", { group, action: "update", decoration: resolveDecorationForWire(d, this._decoratorConfig.decorationTemplates) });
             }
         });
     }
@@ -732,7 +737,7 @@ export class EpubNavigator extends VisualNavigator implements Configurable<Confi
             if (matching.length === 0) continue;
             frame.msg.send("decorate", { group, action: "clear" });
             for (const d of matching)
-                frame.msg.send("decorate", { group, action: "add", decoration: d });
+                frame.msg.send("decorate", { group, action: "add", decoration: resolveDecorationForWire(d, this._decoratorConfig.decorationTemplates) });
         }
         for (const [group, activatable] of this._decorationActivationState) {
             frame.msg.send("decoration_activatable", { group, activatable });
