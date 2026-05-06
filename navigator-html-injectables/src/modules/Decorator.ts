@@ -807,13 +807,18 @@ class DecorationGroup {
         // Update the mask rect
         const maskRect = this.maskSvg.querySelector("rect") as SVGRectElement;
         if (maskRect) {
-            const maskTint = this.getBackgroundColor() || "rgba(255, 255, 255, 0.5)";
+            const firstMaskStyle = maskItems[0].decoration.style as BuiltinDecorationStyle;
+            const userTint = firstMaskStyle.tint;
+            // User-supplied tint: alpha is their responsibility (SVG fill respects rgba natively).
+            // Background color fallback: always fully opaque, so apply default dimming.
+            const fillColor   = userTint ?? this.getBackgroundColor() ?? defaultTint(DecorationStyleType.Mask);
+            const fillOpacity = userTint ? "1" : "0.5";
             maskRect.setAttribute("x", "0");
             maskRect.setAttribute("y", "0");
             maskRect.setAttribute("width", String(docW));
             maskRect.setAttribute("height", String(docH));
-            maskRect.setAttribute("fill", maskTint);
-            maskRect.setAttribute("fill-opacity", "0.5");
+            maskRect.setAttribute("fill", fillColor);
+            maskRect.setAttribute("fill-opacity", fillOpacity);
         }
     }
 
