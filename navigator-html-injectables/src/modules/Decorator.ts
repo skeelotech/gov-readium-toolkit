@@ -344,43 +344,47 @@ class DecorationGroup {
         const type = style.type ?? DecorationStyleType.Highlight;
         const tint = style.tint ?? defaultTint(type);
         const width = style.width;
+        const layout = style.layout;
 
         // Helper for caret position
         const caretPositionFromPoint = (x: number, y: number): CaretPosition | null => {
             return this.wnd.document.caretPositionFromPoint?.(x, y) ?? null;
         };
 
-        // Width-aware range registration for TextColor
-        if (type === DecorationStyleType.TextColor) {
-            if (width === undefined || width === DecorationWidth.Wrap) {
-                // wrap: register original range
+        // TextColor range registration: expand to bounding rect when layout/width asks for it.
+        if (
+            type === DecorationStyleType.TextColor &&
+            (layout === DecorationLayout.Bounds || width === DecorationWidth.Bounds || width === DecorationWidth.Page)
+        ) {
+            // For vertical writing, caretPositionFromPoint has browser bugs - use fallback
+            const ctx = makeWritingContext(this.wnd);
+            if (ctx.isVertical) {
+                console.warn('Vertical writing detected: caretPositionFromPoint has known bugs, falling back to original range');
                 highlighter.add(item.range);
-            } else if (width === DecorationWidth.Bounds || width === DecorationWidth.Page) {
-                // bounds and page: color all text within bounding rect
-                // For vertical writing, caretPositionFromPoint has browser bugs - use fallback
-                const ctx = makeWritingContext(this.wnd);
-                if (ctx.isVertical) {
-                    console.warn('Vertical writing detected: caretPositionFromPoint has known bugs, falling back to original range');
-                    highlighter.add(item.range);
+            } else {
+                const boundingRect = item.range.getBoundingClientRect();
+                // Page snaps to the full page inline extent; Bounds/layout:Bounds uses the actual bounding rect.
+                let inlineOrigin: number;
+                let inlineExtent: number;
+                if (width === DecorationWidth.Page) {
+                    const snap = Math.floor(ctx.inlineStart(boundingRect) / ctx.pageInlineSize) * ctx.pageInlineSize;
+                    inlineOrigin = snap;
+                    inlineExtent = ctx.pageInlineSize;
                 } else {
-                    // Horizontal writing: use caretPositionFromPoint to expand range
-                    const boundingRect = item.range.getBoundingClientRect();
-                    const startCaret = caretPositionFromPoint(ctx.inlineStart(boundingRect), ctx.blockStart(boundingRect) + 1);
-                    const endCaret = caretPositionFromPoint(ctx.inlineStart(boundingRect) + ctx.inlineSize(boundingRect), ctx.blockStart(boundingRect) + ctx.blockSize(boundingRect) - 1);
-                    if (startCaret && endCaret) {
-                        const expandedRange = this.wnd.document.createRange();
-                        expandedRange.setStart(startCaret.offsetNode, startCaret.offset);
-                        expandedRange.setEnd(endCaret.offsetNode, endCaret.offset);
-                        highlighter.add(expandedRange);
-                        // Update item.range so hit testing in handleActivation uses the expanded area
-                        item.range = expandedRange;
-                    } else {
-                        highlighter.add(item.range);
-                    }
+                    inlineOrigin = ctx.inlineStart(boundingRect);
+                    inlineExtent = ctx.inlineSize(boundingRect);
                 }
-            } else if (width === DecorationWidth.Viewport) {
-                // viewport: falls back to wrap due to CSS Highlight API limitations
-                highlighter.add(item.range);
+                const startCaret = caretPositionFromPoint(inlineOrigin, ctx.blockStart(boundingRect) + 1);
+                const endCaret = caretPositionFromPoint(inlineOrigin + inlineExtent, ctx.blockStart(boundingRect) + ctx.blockSize(boundingRect) - 1);
+                if (startCaret && endCaret) {
+                    const expandedRange = this.wnd.document.createRange();
+                    expandedRange.setStart(startCaret.offsetNode, startCaret.offset);
+                    expandedRange.setEnd(endCaret.offsetNode, endCaret.offset);
+                    highlighter.add(expandedRange);
+                    item.range = expandedRange;
+                } else {
+                    highlighter.add(item.range);
+                }
             }
         } else {
             highlighter.add(item.range);
