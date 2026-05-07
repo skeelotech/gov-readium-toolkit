@@ -1,9 +1,16 @@
+export interface ObservableCondition {
+    // Must fire immediately with the current value, then again on each change.
+    subscribe(cb: (value: boolean) => void): () => void;
+}
+
 export interface KeyCombo {
     keyCode: number;  // Use stable keyCode that doesn't change across layouts
     ctrl?: boolean;
     shift?: boolean;
     alt?: boolean;
     meta?: boolean;
+    suppressOnInteractiveElement?: boolean | string[];
+    condition?: ObservableCondition;
 }
 
 export interface KeyboardPeripheral {

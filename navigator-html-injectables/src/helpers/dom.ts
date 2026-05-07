@@ -30,6 +30,7 @@ export function deselect(wnd: ReadiumWindow) {
 
 const interactiveTags = [
     "a",
+    "area", 
     "audio",
     "button",
     "canvas",
@@ -43,17 +44,14 @@ const interactiveTags = [
     "video",
 ];
 
+const interactiveRoles = ["dialog", "radiogroup", "radio", "menu", "menuitem"];
+
 // See https://github.com/JayPanoz/architecture/tree/touch-handling/misc/touch-handling
 export function nearestInteractiveElement(element: Element): Element | null {
-    if (interactiveTags.indexOf(element.nodeName.toLowerCase()) !== -1) {
-        return element;
-    }
-
-    // Checks whether the element is editable by the user.
-    if (
-        element.hasAttribute("contenteditable") &&
-        element.getAttribute("contenteditable")?.toLowerCase() !== "false"
-    ) {
+    // If the element or any ancestor is blocked, return null immediately
+    if (isElementBlocked(element)) return null;
+    
+    if (isInteractiveElement(element)) {
         return element;
     }
 
@@ -63,6 +61,29 @@ export function nearestInteractiveElement(element: Element): Element | null {
     }
 
     return null;
+}
+
+export function isElementBlocked(element: Element | null): boolean {
+    if (!element) {
+        return true;
+    }
+    
+    return element.closest("[inert]") !== null || element.hasAttribute("disabled");
+}
+
+export function isInteractiveElement(element: Element | null): boolean {
+    if (!element) {
+        return false;
+    }
+    
+    // Check for interactive roles
+    if (element.role && interactiveRoles.includes(element.role)) return true;
+
+    if ((element as HTMLElement).tabIndex >= 0) return true;
+    
+    // Use existing interactive tags logic
+    return interactiveTags.includes(element.nodeName.toLowerCase()) ||
+           element.hasAttribute("contenteditable") && element.getAttribute("contenteditable")?.toLowerCase() !== "false";
 }
 
 /// Returns the `Locator` object to the first block element that is visible on

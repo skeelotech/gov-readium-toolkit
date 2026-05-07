@@ -2,7 +2,7 @@ import { Layout, Link, Locator, Profile, Publication, ReadingProgression } from 
 import { Configurable, ConfigurableSettings, LineLengths, ProgressionRange, VisualNavigator, VisualNavigatorViewport } from "../index.ts";
 import { FramePoolManager } from "./frame/FramePoolManager.ts";
 import { FXLFramePoolManager } from "./fxl/FXLFramePoolManager.ts";
-import { CommsEventKey, ContextMenuEvent, FXLModules, KeyboardEventData, ModuleLibrary, ModuleName, ReflowableModules, BasicTextSelection, FrameClickEvent, SuspiciousActivityEvent } from "@readium/navigator-html-injectables";
+import { CommsEventKey, ContextMenuEvent, FXLModules, ModuleLibrary, ModuleName, ReflowableModules, BasicTextSelection, FrameClickEvent, SuspiciousActivityEvent, KeyboardPeripheralEvent } from "@readium/navigator-html-injectables";
 import * as path from "path-browserify";
 import { FXLFrameManager } from "./fxl/FXLFrameManager.ts";
 import { FrameManager } from "./frame/FrameManager.ts";
@@ -22,6 +22,10 @@ import { KeyboardPeripherals, NAVIGATOR_KEYBOARD_PERIPHERAL_EVENT } from "../per
 import { getScriptMode } from "../helpers/scriptMode.ts";
 
 export type ManagerEventKey = "zoom";
+
+export interface KeyboardPeripheralEventData extends Omit<KeyboardPeripheralEvent, 'interactiveElement'> {
+    interactiveElement?: Element;
+}
 
 export interface EpubNavigatorConfiguration {
     preferences: IEpubPreferences;
@@ -44,7 +48,7 @@ export interface EpubNavigatorListeners {
     textSelected: (selection: BasicTextSelection) => void;
     contentProtection: (type: string, data: SuspiciousActivityEvent) => void;
     contextMenu: (data: ContextMenuEvent) => void;
-    peripheral: (data: KeyboardEventData) => void;
+    peripheral: (data: KeyboardPeripheralEventData) => void;
     // showToc: () => void;
 }
 
@@ -540,7 +544,15 @@ export class EpubNavigator extends VisualNavigator implements Configurable<Confi
                 this.listeners.contextMenu(data as ContextMenuEvent);
                 break;
             case "keyboard_peripherals":
-                this.listeners.peripheral(data as KeyboardEventData);
+                const event = data as KeyboardPeripheralEvent;
+                const parsedEvent: KeyboardPeripheralEventData = { ...event, interactiveElement: undefined };
+                if (event.interactiveElement) {
+                    parsedEvent.interactiveElement = new DOMParser().parseFromString(
+                        event.interactiveElement,
+                        "text/html"
+                    ).body.children[0] as Element;
+                }
+                this.listeners.peripheral(parsedEvent);
                 break;
             case "log":
                 console.log(this._cframes[0]?.source?.split("/")[3], ...(data as any[]));
