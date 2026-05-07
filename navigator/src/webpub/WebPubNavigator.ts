@@ -2,12 +2,12 @@ import { Feature, Link, Locator, LocatorText, Publication, ReadingProgression, L
 import { VisualNavigator, VisualNavigatorViewport, ProgressionRange } from "../Navigator.ts";
 import { Configurable } from "../preferences/Configurable.ts";
 import { WebPubFramePoolManager } from "./WebPubFramePoolManager.ts";
-import { BasicTextSelection, CommsEventKey, ContextMenuEvent, DecorationActivatedEvent, FrameClickEvent, KeyboardEventData, ModuleName, SuspiciousActivityEvent, WebPubModules } from "@readium/navigator-html-injectables";
+import { BasicTextSelection, CommsEventKey, ContextMenuEvent, DecorationActivatedEvent, FrameClickEvent, KeyboardPeripheralEvent, ModuleName, SuspiciousActivityEvent, WebPubModules } from "@readium/navigator-html-injectables";
 import * as path from "path-browserify";
 import { WebPubFrameManager } from "./WebPubFrameManager.ts";
 import { Decoration, DecorableNavigator, DecorationActivationEvent, DecorationObserver, DecoratorConfig, decorationsEqual, resolveDecorationForWire, BUILTIN_DECORATION_TYPES } from "../decorations/index.ts";
 
-import { ManagerEventKey } from "../epub/EpubNavigator.ts";
+import { KeyboardPeripheralEventData, ManagerEventKey } from "../epub/EpubNavigator.ts";
 import { getScriptMode } from "../helpers/scriptMode.ts";
 import { WebPubCSS } from "./css/WebPubCSS.ts";
 import { WebUserProperties, WebRSProperties } from "./css/Properties.ts";
@@ -43,7 +43,7 @@ export interface WebPubNavigatorListeners {
     textSelected: (selection: BasicTextSelection) => void;
     contentProtection: (type: string, data: SuspiciousActivityEvent) => void;
     contextMenu: (data: ContextMenuEvent) => void;
-    peripheral: (data: KeyboardEventData) => void;
+    peripheral: (data: KeyboardPeripheralEventData) => void;
 }
 
 const defaultListeners = (listeners: WebPubNavigatorListeners): WebPubNavigatorListeners => ({
@@ -379,7 +379,15 @@ export class WebPubNavigator extends VisualNavigator implements Configurable<Web
                 this.listeners.contextMenu(data as ContextMenuEvent);
                 break;
             case "keyboard_peripherals":
-                this.listeners.peripheral(data as KeyboardEventData);
+                const event = data as KeyboardPeripheralEvent;
+                const parsedEvent: KeyboardPeripheralEventData = { ...event, interactiveElement: undefined };
+                if (event.interactiveElement) {
+                    parsedEvent.interactiveElement = new DOMParser().parseFromString(
+                        event.interactiveElement,
+                        "text/html"
+                    ).body.children[0] as Element;
+                }
+                this.listeners.peripheral(parsedEvent);
                 break;
             case "log":
                 console.log(this.framePool.currentFrames[0]?.source?.split("/")[3], ...(data as any[]));

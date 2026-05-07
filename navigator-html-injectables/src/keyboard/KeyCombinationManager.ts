@@ -1,6 +1,6 @@
 import { KeyCombo, KeyboardPeripheral } from "./KeyboardCombinations.ts";
 import { BaseKeyboardPeripheralEvent, KeyboardEventData, BasicTextSelection } from "../modules/Peripherals.ts";
-import { ReadiumWindow } from "../helpers/dom.ts";
+import { isInteractiveElement, nearestInteractiveElement, ReadiumWindow } from "../helpers/dom.ts";
 
 export type KeyHandler = (event: KeyboardEvent) => void;
 export type ActivityEventDispatcher = (event: KeyboardPeripheralEvent) => void;
@@ -19,17 +19,28 @@ export class KeyCombinationManager {
      */
     public match(event: KeyboardEvent, combos: KeyCombo[]): boolean {
         for (const combo of combos) {
-            const keyMatch = event.keyCode === combo.keyCode;
-            const ctrlMatch = combo.ctrl === undefined || event.ctrlKey === combo.ctrl;
-            const shiftMatch = combo.shift === undefined || event.shiftKey === combo.shift;
-            const altMatch = combo.alt === undefined || event.altKey === combo.alt;
-            const metaMatch = combo.meta === undefined || event.metaKey === combo.meta;
-
-            if (keyMatch && ctrlMatch && shiftMatch && altMatch && metaMatch) {
+            if (this.matchesCombo(event, combo)) {
                 return true;
             }
         }
         return false;
+    }
+
+    private matchesCombo(event: KeyboardEvent, combo: KeyCombo): boolean {
+        return event.keyCode === combo.keyCode &&
+               this.matchesModifier(event.ctrlKey, combo.ctrl) &&
+               this.matchesModifier(event.shiftKey, combo.shift) &&
+               this.matchesModifier(event.altKey, combo.alt) &&
+               this.matchesModifier(event.metaKey, combo.meta);
+    }
+
+    private matchesModifier(eventModifier: boolean, comboModifier?: boolean): boolean {
+        if (comboModifier === undefined) {
+            // Modifier not specified: must NOT be pressed
+            return !eventModifier;
+        }
+        // Modifier specified: must match exactly
+        return eventModifier === comboModifier;
     }
 
     /**
@@ -56,6 +67,8 @@ export class KeyCombinationManager {
     ): KeyboardPeripheralEvent {
         // Capture selected text if window is available
         let selectedText: Omit<BasicTextSelection, "targetFrameSrc"> | undefined;
+        let interactiveElement: string | undefined;
+        
         if (wnd) {
             const selection = wnd.getSelection();
             const selectedTextStr = selection?.toString() || '';
@@ -71,6 +84,12 @@ export class KeyCombinationManager {
                     height: rect.height
                 };
             }
+
+            // Capture interactive element information following the same pattern as onPointUp
+            const activeElement = wnd.document.activeElement;
+            if (activeElement && activeElement !== wnd.document.body) {
+                interactiveElement = nearestInteractiveElement(activeElement)?.outerHTML;
+            }
         }
 
         return {
@@ -84,7 +103,8 @@ export class KeyCombinationManager {
             shiftKey: event.shiftKey,
             metaKey: event.metaKey,
             targetFrameSrc: targetFrameSrc,
-            selectedText
+            selectedText,
+            interactiveElement
         };
     }
 
@@ -128,10 +148,15 @@ export class KeyCombinationManager {
         return (event: KeyboardEvent) => {
             for (const handlerConfig of handlers) {
                 if (this.match(event, [handlerConfig])) {
+                    const suppress = handlerConfig.suppressOnInteractiveElement;
+                    if (suppress) {
+                        const active = (wnd?.document ?? document).activeElement;
+                        if (Array.isArray(suppress) ? suppress.some(sel => active?.matches(sel)) : isInteractiveElement(active)) return;
+                    }
                     event.preventDefault();
                     event.stopPropagation();
                     handlerConfig.handler!(event);
-                    return; // Stop after first match
+                    return;
                 }
             }
         };

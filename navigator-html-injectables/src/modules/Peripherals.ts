@@ -4,18 +4,12 @@ import { Module } from "./Module.ts";
 import { ReadiumWindow, nearestInteractiveElement } from "../helpers/dom.ts";
 import { BulkCopyProtector, BulkCopyProtectionOptions } from "../protection/BulkCopyProtector.ts";
 import { SelectionAnalyzer, SelectionAnalyzerOptions } from "../protection/SelectionAnalyzer.ts";
-import {
-    KeyboardPeripheral
-} from "../protection/index.ts";
 import { SuspiciousActivityType } from "../comms/index.ts";
 import { BULK_COPY_CONFIG, SELECTION_ANALYZER_CONFIG } from "../protection/config.ts";
-import {
-    KeyCombinationManager,
-    ActivityEventDispatcher,
-    KeyboardPeripheralEvent
-} from "../protection/KeyCombinationManager.ts";
 import { SuspiciousScrollingEvent } from "./snapper/ScrollSnapper.ts";
 import { SuspiciousSnappingEvent } from "./snapper/ColumnSnapper.ts";
+import { ActivityEventDispatcher, KeyboardPeripheralEvent, KeyCombinationManager } from "../keyboard/KeyCombinationManager.ts";
+import { KeyboardPeripheral } from "../keyboard/KeyboardCombinations.ts";
 
 export interface FrameClickEvent {
     defaultPrevented: boolean;
@@ -62,6 +56,7 @@ export interface BaseKeyboardPeripheralEvent {
     timestamp: number;
     targetFrameSrc: string;
     selectedText?: Omit<BasicTextSelection, "targetFrameSrc">;
+    interactiveElement?: string;
 }
 
 export interface DeveloperToolsEvent extends BaseSuspiciousActivityEvent, KeyboardEventData {
