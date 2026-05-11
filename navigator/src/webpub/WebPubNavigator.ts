@@ -1,13 +1,12 @@
 import { Feature, Link, Locator, LocatorText, Publication, ReadingProgression, LocatorLocations } from "@readium/shared";
-import { VisualNavigator, VisualNavigatorViewport, ProgressionRange } from "../Navigator.ts";
+import { VisualNavigator, VisualNavigatorViewport, ProgressionRange, KeyboardPeripheralEventData } from "../Navigator.ts";
 import { Configurable } from "../preferences/Configurable.ts";
 import { WebPubFramePoolManager } from "./WebPubFramePoolManager.ts";
 import { BasicTextSelection, CommsEventKey, ContextMenuEvent, DecorationActivatedEvent, FrameClickEvent, KeyboardPeripheralEvent, ModuleName, SuspiciousActivityEvent, WebPubModules } from "@readium/navigator-html-injectables";
 import * as path from "path-browserify";
 import { WebPubFrameManager } from "./WebPubFrameManager.ts";
 import { Decoration, DecorableNavigator, DecorationActivationEvent, DecorationObserver, DecoratorConfig, decorationsEqual, resolveDecorationForWire, BUILTIN_DECORATION_TYPES } from "../decorations/index.ts";
-
-import { KeyboardPeripheralEventData, ManagerEventKey } from "../epub/EpubNavigator.ts";
+import { ManagerEventKey } from "../epub/EpubNavigator.ts";
 import { getScriptMode } from "../helpers/scriptMode.ts";
 import { WebPubCSS } from "./css/WebPubCSS.ts";
 import { WebUserProperties, WebRSProperties } from "./css/Properties.ts";
