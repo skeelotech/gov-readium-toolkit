@@ -1,0 +1,45 @@
+name: Publish to GitHub Packages
+
+on:
+  push:
+    tags:
+      - 'v*-skeelo.*'   # triggers on tags like v2.5.4-skeelo.1
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: skeelo
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://npm.pkg.github.com'
+          scope: '@skeelotech'
+
+      - name: Install pnpm
+        run: npm install -g pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build all packages
+        run: |
+          pnpm --filter @skeelotech/readium-shared run build
+          pnpm --filter @skeelotech/readium-navigator-html-injectables run build
+          pnpm --filter @skeelotech/readium-navigator run build
+
+      - name: Publish packages
+        run: |
+          pnpm --filter @skeelotech/readium-shared publish --no-git-checks
+          pnpm --filter @skeelotech/readium-navigator-html-injectables publish --no-git-checks
+          pnpm --filter @skeelotech/readium-navigator publish --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

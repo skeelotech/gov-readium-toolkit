@@ -1,13 +1,17 @@
 {
-  "name": "@readium/shared",
-  "version": "2.2.0",
+  "name": "@skeelotech/readium-shared",
+  "version": "2.2.0-skeelo.1",
   "type": "module",
-  "description": "Shared models to be used across other Readium projects and implementations in Typescript",
+  "description": "Shared models to be used across other Readium projects and implementations in Typescript (skeelotech fork)",
   "author": "readium",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/readium/ts-toolkit.git",
+    "url": "git+https://github.com/skeelotech/readium-toolkit.git",
     "directory": "shared"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "restricted"
   },
   "license": "BSD-3-Clause",
   "bugs": {
