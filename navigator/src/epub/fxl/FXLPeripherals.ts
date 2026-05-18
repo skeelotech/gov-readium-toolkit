@@ -87,6 +87,10 @@ export class FXLPeripherals {
 
     private frameBounds: DOMRect | null = null;
     private debugger: FXLPeripheralsDebug | null = null;
+    // [skeelo-patch B1] Destroyed flag prevents null deref in touch handlers after FXL teardown.
+    // touchmove/touchstart/touchend fire asynchronously after destroy() is called during rapid
+    // swipe + page transition, leaving this.coordinator and this.manager dangling.
+    private _destroyed = false;
 
     constructor(manager: FXLFramePoolManager, debug=false) {
         this.manager = manager;
@@ -172,6 +176,22 @@ export class FXLPeripherals {
         // item.addEventListener("click", this.bclickHandler as EventListener);
     }
 
+    // [skeelo-patch B1] Tear down event bindings and set destroyed flag so in-flight
+    // touch events are silently dropped instead of deref-ing a null coordinator/manager.
+    destroy() {
+        this._destroyed = true;
+        const el = this.manager?.spineElement;
+        if (el) {
+            el.removeEventListener("touchstart", this.btouchstartHandler as EventListener);
+            el.removeEventListener("touchend", this.btouchendHandler as EventListener);
+            el.removeEventListener("touchmove", this.btouchmoveHandler as EventListener);
+            el.removeEventListener("dblclick", this.bdblclickHandler as EventListener);
+            el.removeEventListener("mousedown", this.bmousedownHandler as EventListener);
+            el.removeEventListener("mouseup", this.bmouseupHandler as EventListener);
+            el.removeEventListener("mousemove", this.bmousemoveHandler as EventListener);
+        }
+    }
+
     clickHandler(_: MouseEvent) {
         // e.preventDefault();
     }
@@ -180,6 +200,7 @@ export class FXLPeripherals {
      * touchstart event handler
      */
     touchstartHandler(e: TouchEvent) {
+        if (this._destroyed) return; // [skeelo-patch B1]
         // Prevent dragging / swiping on inputs, selects and textareas
         const ignoreSlider = ["TEXTAREA", "OPTION", "INPUT", "SELECT"].indexOf((e.target as Element).nodeName) !== -1;
         if (ignoreSlider)
@@ -267,6 +288,7 @@ export class FXLPeripherals {
      * touchend event handler
      */
     touchendHandler(e: TouchEvent) {
+        if (this._destroyed) return; // [skeelo-patch B1]
         e.stopPropagation();
 
         if(!e.touches || e.touches.length === 0) {
@@ -343,6 +365,7 @@ export class FXLPeripherals {
      * touchmove event handler
      */
     touchmoveHandler(e: TouchEvent) {
+        if (this._destroyed) return; // [skeelo-patch B1]
         e.stopPropagation();
         const coords = this.coordinator.getBibiEventCoord(e);
 
@@ -543,6 +566,7 @@ export class FXLPeripherals {
      * mousedown event handler
      */
     mousedownHandler(e: MouseEvent) {
+        if (this._destroyed) return; // [skeelo-patch B1]
         if (this.isScaled) {
             this.addTouch(e as any);
             this.touchstartHandler(e as any);
@@ -553,6 +577,7 @@ export class FXLPeripherals {
      * mouseup event handler
      */
     mouseupHandler(e: MouseEvent) {
+        if (this._destroyed) return; // [skeelo-patch B1]
         if (this.isScaled) {
             this.touchendHandler(e as any);
         }
@@ -562,6 +587,7 @@ export class FXLPeripherals {
      * mousemove event handler
      */
     mousemoveHandler(e: MouseEvent) {
+        if (this._destroyed) return; // [skeelo-patch B1]
         if (this.isScaled && e.buttons > 0) {
             e.preventDefault();
             this.addTouch(e as any);
