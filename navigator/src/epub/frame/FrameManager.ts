@@ -188,17 +188,27 @@ export class FrameManager {
         return this.destroyed;
     }
 
-    get window() {
-        if(this.destroyed || !this.frame.contentWindow) throw Error("Trying to use frame window when it doesn't exist");
+    // [skeelo-patch B4] Return null instead of throwing when frame is destroyed or
+    // contentWindow is unavailable. The getter was the top error in prod CloudWatch
+    // 2026-04-01–2026-05-17: it propagated into React error boundaries causing full
+    // reader reloads. All callers in this package already use optional-chaining
+    // patterns; returning null is safe. atLeft/atRight return safe defaults instead
+    // of calling through to a potentially-null window.
+    get window(): Window | null {
+        if (this.destroyed || !this.frame.contentWindow) return null;
         return this.frame.contentWindow;
     }
 
     get atLeft() {
-        return this.window.scrollX < 5;
+        const wnd = this.window;
+        if (!wnd) return true; // [skeelo-patch B4] safe default when frame is torn down
+        return wnd.scrollX < 5;
     }
 
     get atRight() {
-        return this.window.scrollX > this.window.document.scrollingElement!.scrollWidth - this.window.innerWidth - 5
+        const wnd = this.window;
+        if (!wnd) return true; // [skeelo-patch B4] safe default when frame is torn down
+        return wnd.scrollX > wnd.document.scrollingElement!.scrollWidth - wnd.innerWidth - 5;
     }
 
     get msg() {

@@ -509,7 +509,8 @@ export class EpubNavigator extends VisualNavigator implements Configurable<Confi
                     const handled = key === "click" ? this.listeners.click(edata) : this.listeners.tap(edata);
                     if(handled) break;
 
-                    const oneQuarter = ((this._cframes.length === 2 ? this._cframes[0]!.window.innerWidth + this._cframes[1]!.window.innerWidth : this._cframes[0]!.window.innerWidth) * window.devicePixelRatio) / 4;
+                    // [skeelo-patch B4] window getter now returns null; use optional-chaining with safe 0 fallback
+                    const oneQuarter = ((this._cframes.length === 2 ? (this._cframes[0]!.window?.innerWidth ?? 0) + (this._cframes[1]!.window?.innerWidth ?? 0) : (this._cframes[0]!.window?.innerWidth ?? 0)) * window.devicePixelRatio) / 4;
                     // open UI if middle screen is clicked/tapped
                     if (edata.x >= oneQuarter && edata.x <= oneQuarter * 3) this.listeners.miscPointer(1);
                     if (edata.x < oneQuarter) this.goLeft(false, () => { }); // Go left if left quarter clicked

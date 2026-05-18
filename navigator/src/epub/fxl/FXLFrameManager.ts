@@ -67,7 +67,7 @@ export class FXLFrameManager {
             }
         }
         if(this.loaded && this.source !== source) {
-            this.window.stop();
+            this.window?.stop(); // [skeelo-patch B4] window may be null during frame teardown
         }
         this.source = source;
         this.loadPromise = new Promise((res, rej) => {
@@ -304,17 +304,24 @@ export class FXLFrameManager {
         this.wrapper.style.height = newHeight;
     }
 
-    get window() {
-        if(!this.frame.contentWindow) throw Error("Trying to use frame window when it doesn't exist");
+    // [skeelo-patch B4] Return null instead of throwing — same fix as FrameManager.window.
+    // FXL frame teardown races fire this getter after contentWindow is gone; throwing
+    // here propagates into React error boundaries causing full reader reloads.
+    get window(): Window | null {
+        if (!this.frame.contentWindow) return null;
         return this.frame.contentWindow;
     }
 
     get atLeft() {
-        return this.window.scrollX < 5;
+        const wnd = this.window;
+        if (!wnd) return true; // [skeelo-patch B4] safe default when frame is torn down
+        return wnd.scrollX < 5;
     }
 
     get atRight() {
-        return this.window.scrollX > this.window.document.scrollingElement!.scrollWidth - this.window.innerWidth - 5
+        const wnd = this.window;
+        if (!wnd) return true; // [skeelo-patch B4] safe default when frame is torn down
+        return wnd.scrollX > wnd.document.scrollingElement!.scrollWidth - wnd.innerWidth - 5;
     }
 
     get msg() {
