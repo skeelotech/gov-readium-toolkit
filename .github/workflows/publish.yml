@@ -3,7 +3,7 @@ name: Publish to GitHub Packages
 on:
   push:
     tags:
-      - 'v*-skeelo.*'   # triggers on tags like v2.5.4-skeelo.1
+      - 'v*-gov.*'   # triggers on tags like v2.5.4-gov.1
   workflow_dispatch:
 
 jobs:
@@ -16,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: skeelo
+          ref: gov
 
       - uses: actions/setup-node@v4
         with:
@@ -32,14 +32,14 @@ jobs:
 
       - name: Build all packages
         run: |
-          pnpm --filter @skeelotech/readium-shared run build
-          pnpm --filter @skeelotech/readium-navigator-html-injectables run build
-          pnpm --filter @skeelotech/readium-navigator run build
+          pnpm --filter @skeelotech/gov-readium-shared run build
+          pnpm --filter @skeelotech/gov-readium-navigator-html-injectables run build
+          pnpm --filter @skeelotech/gov-readium-navigator run build
 
       - name: Publish packages
         run: |
-          pnpm --filter @skeelotech/readium-shared publish --no-git-checks
-          pnpm --filter @skeelotech/readium-navigator-html-injectables publish --no-git-checks
-          pnpm --filter @skeelotech/readium-navigator publish --no-git-checks
+          pnpm --filter @skeelotech/gov-readium-shared publish --no-git-checks
+          pnpm --filter @skeelotech/gov-readium-navigator-html-injectables publish --no-git-checks
+          pnpm --filter @skeelotech/gov-readium-navigator publish --no-git-checks
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

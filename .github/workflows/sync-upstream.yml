@@ -15,14 +15,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: skeelo
+          ref: gov
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Configure git identity
         run: |
-          git config user.name  "skeelo-bot"
-          git config user.email "bot@skeelo.com"
+          git config user.name  "gov-bot"
+          git config user.email "bot@gov.com"
 
       - name: Add upstream remote
         run: |
@@ -48,17 +48,17 @@ jobs:
           git merge --ff-only upstream/develop
           git push origin main
 
-      - name: Rebase skeelo onto new main
+      - name: Rebase gov onto new main
         if: steps.check.outputs.no_change == 'false'
         id: rebase
         run: |
-          git checkout skeelo
+          git checkout gov
           git rebase main 2>&1 | tee /tmp/rebase.log
           echo "exit_code=$?" >> $GITHUB_OUTPUT
 
-      - name: Push rebased skeelo
+      - name: Push rebased gov
         if: steps.check.outputs.no_change == 'false' && steps.rebase.outputs.exit_code == '0'
-        run: git push origin skeelo --force-with-lease
+        run: git push origin gov --force-with-lease
 
       - name: Open conflict PR
         if: steps.rebase.outputs.exit_code != '0'
@@ -69,8 +69,8 @@ jobs:
           git push origin "$BRANCH"
           gh pr create \
             --title "Upstream sync conflict $(date +%Y-%m-%d)" \
-            --body "Automated upstream sync hit rebase conflicts. Resolve manually and merge to skeelo." \
-            --base skeelo \
+            --body "Automated upstream sync hit rebase conflicts. Resolve manually and merge to gov." \
+            --base gov \
             --head "$BRANCH" \
             --label "upstream-conflict" || true
         env:

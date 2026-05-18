@@ -1,12 +1,12 @@
 {
-  "name": "@skeelotech/readium-navigator",
-  "version": "2.5.4-skeelo.1",
+  "name": "@skeelotech/gov-readium-navigator",
+  "version": "2.5.4-gov.1",
   "type": "module",
-  "description": "Next generation SDK for publications in Web Apps (skeelotech fork with B1-B5 patches)",
+  "description": "Next generation SDK for publications in Web Apps (gov-books fork with B1-B5 patches)",
   "author": "readium",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/skeelotech/readium-toolkit.git",
+    "url": "git+https://github.com/skeelotech/gov-readium-toolkit.git",
     "directory": "navigator"
   },
   "publishConfig": {

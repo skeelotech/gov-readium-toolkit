@@ -1,12 +1,12 @@
 {
-  "name": "@skeelotech/readium-shared",
-  "version": "2.2.0-skeelo.1",
+  "name": "@skeelotech/gov-readium-shared",
+  "version": "2.2.0-gov.1",
   "type": "module",
-  "description": "Shared models to be used across other Readium projects and implementations in Typescript (skeelotech fork)",
+  "description": "Shared models to be used across other Readium projects and implementations in Typescript (gov-books fork)",
   "author": "readium",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/skeelotech/readium-toolkit.git",
+    "url": "git+https://github.com/skeelotech/gov-readium-toolkit.git",
     "directory": "shared"
   },
   "publishConfig": {
