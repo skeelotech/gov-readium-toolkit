@@ -921,12 +921,26 @@ export class EpubNavigator extends VisualNavigator implements Configurable<Confi
 
     public go(locator: Locator, _: boolean, cb: (ok: boolean) => void): void {
         const href = locator.href.split("#")[0];
+        // [skeelo-patch B5] Guard against readingOrder not yet hydrated (goLink called during
+        // publication reload before usePublication resolves). findWithHref delegates to
+        // items.find() which throws "Cannot read properties of undefined (reading 'find')"
+        // when items is transiently undefined. Confirmed in prod via TOC fast-tap logs.
+        if (!this.pub?.readingOrder?.items?.length) {
+            console.warn("[readium] go() called before publication readingOrder is ready, ignoring");
+            return cb(false);
+        }
         let link = this.pub.readingOrder.findWithHref(href);
         if(!link) {
             return cb(this.listeners.handleLocator(locator));
         }
 
-        this.currentLocation = this.positions.find(p => p.href === link!.href)!;
+        // [skeelo-patch B5] positions.find() can return undefined if positions haven't loaded yet.
+        const found = this.positions?.find(p => p.href === link!.href);
+        if (!found) {
+            console.warn(`[readium] go(): no position found for href ${link.href}, ignoring`);
+            return cb(false);
+        }
+        this.currentLocation = found;
         this.apply().then(() => this.loadLocator(locator, (ok) => cb(ok))).then(() => {
             // Now that we've gone to the right locator, we can attach the listeners.
             // Doing this only at this stage reduces janky UI with multiple locator updates.
