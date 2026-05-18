@@ -588,9 +588,26 @@ export class EpubNavigator extends VisualNavigator implements Configurable<Confi
     }
 
     // Start listening to messages from the current iframe
+    // [skeelo-patch B3] _attachRetries guards against infinite retry when the navigator
+    // is being torn down and frames will never become available.
+    private _attachRetries = 0;
     private attachListener() {
         const vframes = this._cframes.filter(f => !!f) as (FXLFrameManager | FrameManager)[];
-        if(vframes.length === 0) throw Error("no cframe to attach listener to");
+        if (vframes.length === 0) {
+            // [skeelo-patch B3] FramePoolManager.update() is async; _cframes can transiently
+            // return an empty array while frames are being swapped. Changed from throw to a
+            // capped retry instead of crashing the reader. Confirmed error in prod 2026-04-01–2026-05-17.
+            if (this._attachRetries < 3) {
+                this._attachRetries++;
+                console.warn(`[readium] no cframe available, deferring attachListener (attempt ${this._attachRetries}/3)`);
+                setTimeout(() => this.attachListener(), 200);
+            } else {
+                this._attachRetries = 0;
+                console.warn("[readium] attachListener: no cframe after 3 retries, giving up (navigator may be destroyed)");
+            }
+            return;
+        }
+        this._attachRetries = 0;
         vframes.forEach(f => {
             if(f.msg) f.msg.listener = (key: CommsEventKey | ManagerEventKey, value: unknown) => {
                 this.eventListener(key, value);
