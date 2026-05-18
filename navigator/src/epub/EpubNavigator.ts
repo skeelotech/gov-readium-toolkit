@@ -386,6 +386,11 @@ export class EpubNavigator extends VisualNavigator implements Configurable<Confi
                 oldColCount !== this._css.userProperties.colCount ||
                 oldLineLength !== this._css.userProperties.lineLength
             ) {
+                // [skeelo-patch B2] ResizeObserver fires before load() assigns framePool.
+                // commitCSS already has an internal guard, but making it explicit here
+                // prevents setCSSProperties from being called on an undefined framePool
+                // during orientation change or sidebar toggle races.
+                if (!this.framePool) return;
                 await this.commitCSS(this._css);
             }
         }
