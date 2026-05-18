@@ -7,52 +7,30 @@ jobs:
     permissions:
       packages: write
     steps:
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          registry-url: 'https://npm.pkg.github.com'
-          scope: '@skeelotech'
-      - name: Deprecate old packages via GitHub API
+      - name: Deprecate old packages
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GOV_GH_PACKAGES_PAT }}
-          GH_TOKEN: ${{ secrets.GOV_GH_PACKAGES_PAT }}
         run: |
           set -e
-          ORG="skeelotech"
+          # Write npmrc with token for GitHub Packages
+          echo "//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}" > ~/.npmrc
+          echo "@skeelotech:registry=https://npm.pkg.github.com" >> ~/.npmrc
 
-          deprecate_version() {
-            local PKG="$1"
-            local VER="$2"
-            local MSG="$3"
-            echo "Checking $PKG@$VER ..."
-            # List versions for this package
-            VERSIONS=$(gh api "/orgs/$ORG/packages/npm/$PKG/versions" 2>&1 || echo "NOT_FOUND")
-            if echo "$VERSIONS" | grep -q "NOT_FOUND\|404\|403"; then
-              echo "  Package $PKG not found or not accessible — skipping"
+          deprecate_pkg() {
+            local SPEC="$1"
+            local MSG="$2"
+            echo "Deprecating $SPEC ..."
+            npm deprecate "$SPEC" "$MSG" --registry=https://npm.pkg.github.com || {
+              echo "  WARNING: npm deprecate failed for $SPEC (may not be supported by GitHub Packages)"
               return 0
-            fi
-            VERSION_ID=$(echo "$VERSIONS" | python3 -c "
-          import json, sys
-          data = json.load(sys.stdin)
-          for v in data:
-              if v.get('name') == '$VER':
-                  print(v['id'])
-                  break
-          " 2>/dev/null || echo "")
-            if [ -z "$VERSION_ID" ]; then
-              echo "  Version $VER not found in $PKG — skipping"
-              return 0
-            fi
-            echo "  Deleting $PKG@$VER (id=$VERSION_ID)..."
-            gh api --method DELETE "/orgs/$ORG/packages/npm/$PKG/versions/$VERSION_ID"
-            echo "  Deleted $PKG@$VER"
+            }
+            echo "  Done: $SPEC"
           }
 
-          deprecate_version "readium-navigator" "2.5.4-skeelo.1" "renamed to @skeelotech/gov-readium-navigator"
-          deprecate_version "readium-shared" "2.2.0-skeelo.1" "renamed to @skeelotech/gov-readium-shared"
-          deprecate_version "readium-navigator-html-injectables" "2.4.2-skeelo.1" "renamed to @skeelotech/gov-readium-navigator-html-injectables"
-          deprecate_version "readium-css" "2.0.5-skeelo.1" "renamed to @skeelotech/gov-readium-css"
-          deprecate_version "thorium-web" "1.5.0-skeelo.1" "renamed to @skeelotech/gov-thorium-web"
+          deprecate_pkg "@skeelotech/readium-navigator@2.5.4-skeelo.1" "renamed to @skeelotech/gov-readium-navigator"
+          deprecate_pkg "@skeelotech/readium-shared@2.2.0-skeelo.1" "renamed to @skeelotech/gov-readium-shared"
+          deprecate_pkg "@skeelotech/readium-navigator-html-injectables@2.4.2-skeelo.1" "renamed to @skeelotech/gov-readium-navigator-html-injectables"
+          deprecate_pkg "@skeelotech/readium-css@2.0.5-skeelo.1" "renamed to @skeelotech/gov-readium-css"
+          deprecate_pkg "@skeelotech/thorium-web@1.5.0-skeelo.1" "renamed to @skeelotech/gov-thorium-web"
 
-          echo "All done"
+          echo "OK"
