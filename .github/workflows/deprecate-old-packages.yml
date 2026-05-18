@@ -1,0 +1,26 @@
+name: Deprecate old skeelo packages (one-shot)
+on:
+  workflow_dispatch:
+jobs:
+  deprecate:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://npm.pkg.github.com'
+          scope: '@skeelotech'
+      - name: Deprecate old packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GOV_GH_PACKAGES_PAT }}
+        run: |
+          set -e
+          npm deprecate "@skeelotech/readium-navigator@2.5.4-skeelo.1" "renamed to @skeelotech/gov-readium-navigator"
+          npm deprecate "@skeelotech/readium-shared@2.2.0-skeelo.1" "renamed to @skeelotech/gov-readium-shared"
+          npm deprecate "@skeelotech/readium-navigator-html-injectables@2.4.2-skeelo.1" "renamed to @skeelotech/gov-readium-navigator-html-injectables"
+          npm deprecate "@skeelotech/readium-css@2.0.5-skeelo.1" "renamed to @skeelotech/gov-readium-css"
+          npm deprecate "@skeelotech/thorium-web@1.5.0-skeelo.1" "renamed to @skeelotech/gov-thorium-web"
+          echo "OK"
