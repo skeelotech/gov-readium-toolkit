@@ -29,6 +29,8 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GOV_GH_PACKAGES_PAT }}
 
       - name: Build all packages
         run: |
@@ -42,4 +44,4 @@ jobs:
           pnpm --filter @skeelotech/gov-readium-navigator-html-injectables publish --no-git-checks
           pnpm --filter @skeelotech/gov-readium-navigator publish --no-git-checks
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.GOV_GH_PACKAGES_PAT }}
