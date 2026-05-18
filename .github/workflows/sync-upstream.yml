@@ -1,0 +1,84 @@
+name: Sync upstream
+
+on:
+  schedule:
+    - cron: '0 6 * * *'      # 03:00 BRT (UTC-3) every day
+  workflow_dispatch:           # manual trigger
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: skeelo
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git identity
+        run: |
+          git config user.name  "skeelo-bot"
+          git config user.email "bot@skeelo.com"
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/readium/ts-toolkit.git
+          git fetch upstream develop --no-tags
+          git fetch origin main --no-tags
+
+      - name: Check if upstream moved
+        id: check
+        run: |
+          LOCAL=$(git rev-parse origin/main)
+          REMOTE=$(git rev-parse upstream/develop)
+          if [ "$LOCAL" = "$REMOTE" ]; then
+            echo "no_change=true" >> $GITHUB_OUTPUT
+          else
+            echo "no_change=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Fast-forward main to upstream develop
+        if: steps.check.outputs.no_change == 'false'
+        run: |
+          git checkout main
+          git merge --ff-only upstream/develop
+          git push origin main
+
+      - name: Rebase skeelo onto new main
+        if: steps.check.outputs.no_change == 'false'
+        id: rebase
+        run: |
+          git checkout skeelo
+          git rebase main 2>&1 | tee /tmp/rebase.log
+          echo "exit_code=$?" >> $GITHUB_OUTPUT
+
+      - name: Push rebased skeelo
+        if: steps.check.outputs.no_change == 'false' && steps.rebase.outputs.exit_code == '0'
+        run: git push origin skeelo --force-with-lease
+
+      - name: Open conflict PR
+        if: steps.rebase.outputs.exit_code != '0'
+        run: |
+          git rebase --abort
+          BRANCH="sync/upstream-$(date +%Y-%m-%d)"
+          git checkout -b "$BRANCH"
+          git push origin "$BRANCH"
+          gh pr create \
+            --title "Upstream sync conflict $(date +%Y-%m-%d)" \
+            --body "Automated upstream sync hit rebase conflicts. Resolve manually and merge to skeelo." \
+            --base skeelo \
+            --head "$BRANCH" \
+            --label "upstream-conflict" || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run build after clean rebase
+        if: steps.rebase.outputs.exit_code == '0' && steps.check.outputs.no_change == 'false'
+        run: |
+          npm install -g pnpm
+          pnpm install --frozen-lockfile
+          pnpm run build --if-present
